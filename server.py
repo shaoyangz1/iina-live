@@ -84,6 +84,18 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         global _active, _last_active
+        # 健康探测:供 cli 识别本 skill 的代理(须在房间解析之前拦截)
+        if self.path.split("?")[0].rstrip("/") == "/__ping__":
+            body = b"iina-live"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            try:
+                self.wfile.write(body)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+            return
         room = room_from_path(self.path)
         try:
             urls, title, headers = resolve_lines(room)

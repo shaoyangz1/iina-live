@@ -21,10 +21,35 @@ import subprocess
 import sys
 import tempfile
 import urllib.parse
+import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import sites
 import common
+
+PORT_SCAN = 20   # 从 --port 起最多向后扫描多少个端口
+
+
+def _probe(port):
+    """探测端口:'ours'=本 skill 代理 / 'free'=无人监听 / 'other'=被别的占用。"""
+    try:
+        r = urllib.request.urlopen(f"http://127.0.0.1:{port}/__ping__", timeout=2)
+        return "ours" if b"iina-live" in r.read(32) else "other"
+    except urllib.error.URLError as e:
+        return "free" if isinstance(e.reason, ConnectionRefusedError) else "other"
+    except Exception:
+        return "other"
+
+
+def _choose_port(base):
+    """优先复用已有代理端口；否则返回第一个空闲端口。返回 (port, reuse)。"""
+    for p in range(base, base + PORT_SCAN):        # 先找可复用的
+        if _probe(p) == "ours":
+            return p, True
+    for p in range(base, base + PORT_SCAN):        # 再找空闲的新起
+        if _probe(p) == "free":
+            return p, False
+    raise RuntimeError(f"{base}~{base + PORT_SCAN - 1} 端口都被占用，换个 --port")
 
 
 def _open_iina(url):
@@ -99,15 +124,23 @@ def main():
         print(f"已用 m3u 播放列表打开:{path}\n卡住时在 IINA 播放列表切换「备用N」。")
         return 0
 
-    # serve 模式：启动本地代理（阻塞），并唤起播放器
-    # 路径用房间名，服务器会据此自动解析（/lpl.flv → 同平台/lpl）
+    # serve 模式:优先复用已有代理，否则在空闲端口新起。网关按路径解析房间
+    # （/lpl.flv → 同平台/lpl），一个代理可服务任意房间。
     slug = urllib.parse.urlparse(a.url).path.strip("/").split("/")[0] or "live"
-    local = f"http://127.0.0.1:{a.port}/{slug}.flv"
-    here = os.path.dirname(os.path.abspath(__file__))
-    srv = subprocess.Popen([sys.executable, os.path.join(here, "server.py"),
-                            a.url, str(a.port), a.quality or "", str(a.grace)])
-    import time
-    time.sleep(4)
+    port, reuse = _choose_port(a.port)
+    local = f"http://127.0.0.1:{port}/{slug}.flv"
+
+    srv = None
+    if reuse:
+        print(f"复用已有代理 (端口 {port})，无需新起。")
+    else:
+        here = os.path.dirname(os.path.abspath(__file__))
+        srv = subprocess.Popen([sys.executable, os.path.join(here, "server.py"),
+                                a.url, str(port), a.quality or "", str(a.grace)])
+        import time
+        time.sleep(4)
+        print(f"本地代理已启动 (PID {srv.pid}，端口 {port})。")
+
     if a.player == "mpv":
         _open_mpv(local, title, {})   # 本地代理已带好平台头，mpv 直连 localhost 不需要
     else:
@@ -119,8 +152,11 @@ def main():
         with open(m3u, "w") as f:
             f.write(common.single_m3u(title, local))
         _open_iina(common.iina_local_url(title, m3u))
-    print(f"本地代理已启动 (PID {srv.pid})，固定地址:{local}")
-    print("直播每 ~2 分钟断流由服务器自动重解析续播，播放器无感。Ctrl+C 结束。")
+    print(f"地址:{local}")
+
+    if reuse:
+        return 0   # 不占管现有代理，开完即返回
+    print("直播断流由服务器自动重解析续播，播放器无感。Ctrl+C 结束。")
     try:
         srv.wait()
     except KeyboardInterrupt:
