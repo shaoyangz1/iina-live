@@ -119,8 +119,11 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         w = self.wfile
 
-        GAP = 40           # 段间隔(ms)
-        out_max = -GAP     # 已输出的最大时间戳；初值 -GAP 让第 1 段从 0 开始
+        GAP = 40            # 段间隔(ms),仅换线/时钟跳变时用于接续
+        WINDOW = 60000      # ms,原始 ts 相差在此以内视为“同一时钟”
+        out_base = None     # 原始 ts -> 输出 ts 的偏移(让第 1 帧从 0 开始)
+        last_src = None     # 已输出的最大原始时间戳(跨段,用于丢重复回放)
+        last_out = -GAP     # 已输出的最大输出时间戳
         first_segment = True
         seg = 0
         line = 0
@@ -134,7 +137,7 @@ class Handler(BaseHTTPRequestHandler):
                     break
                 continue
             seg += 1
-            print(f"[seg {seg}] 线路{line % len(urls)} 连接，out_max={out_max}", flush=True)
+            print(f"[seg {seg}] 线路{line % len(urls)} 连接，last_out={last_out}", flush=True)
 
             # FLV 文件头(9)+PreviousTagSize0(4)：仅第一段转发，后续段丢弃
             header = read_exact(fp, 13)
@@ -148,7 +151,10 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 first_segment = False
 
-            offset = None      # 本段时间戳偏移，见到首帧时按 out_max 对齐
+            resume = last_src   # 本段丢弃阈值:原始 ts <= resume 的都是重复回放
+            first_tag = True
+            dropped = 0         # 本段丢弃的重复帧数(用于日志)
+            drop_from = None    # 首个被丢帧的原始 ts,用于算丢弃时长
             try:
                 while True:
                     th = read_exact(fp, 11)
@@ -160,11 +166,29 @@ class Handler(BaseHTTPRequestHandler):
                     prev = read_exact(fp, 4)
                     if len(data) < dsize or len(prev) < 4:
                         break
-                    # 虎牙 ts 是延续的大值且重连不归零，用偏移把本段首帧对齐到
-                    # 上一段输出之后，保证跨段时间戳连续、不跳变
-                    if offset is None:
-                        offset = (out_max + GAP) - ts
-                    new_ts = ts + offset
+
+                    if first_tag:
+                        first_tag = False
+                        if out_base is None:
+                            out_base = -ts          # 首段:输出从 0 开始
+                            resume = None            # 首段不丢弃
+                        elif last_src is not None and abs(ts - last_src) > WINDOW:
+                            # 时钟跳变(多半换了 CDN 线路)→ 重新基线,本段整体接到末尾之后
+                            out_base = (last_out + GAP) - ts
+                            resume = None
+                    # 虎牙新连接开头会重发几秒“回看缓冲”,原始 ts 连续,
+                    # 丢掉 ts <= 上段末尾 的重复帧(音视频一并丢),避免回放
+                    if resume is not None and ts <= resume:
+                        if drop_from is None:
+                            drop_from = ts
+                        dropped += 1
+                        continue
+                    if dropped:
+                        print(f"[seg {seg}] 丢弃重复回放 {dropped} 帧(~{resume - drop_from}ms)，"
+                              f"从 out_ts={ts + out_base} 续播", flush=True)
+                        dropped = 0
+
+                    new_ts = ts + out_base
                     nh = bytes([th[0],
                                 (dsize >> 16) & 0xFF, (dsize >> 8) & 0xFF, dsize & 0xFF,
                                 (new_ts >> 16) & 0xFF, (new_ts >> 8) & 0xFF, new_ts & 0xFF,
@@ -176,8 +200,10 @@ class Handler(BaseHTTPRequestHandler):
                         w.write(prev)
                     except (BrokenPipeError, ConnectionResetError):
                         return  # 播放器关了 → 结束
-                    if new_ts > out_max:
-                        out_max = new_ts
+                    if new_ts > last_out:
+                        last_out = new_ts
+                    if last_src is None or ts > last_src:
+                        last_src = ts
             except Exception as e:
                 print(f"[seg {seg}] 读取异常: {e!r}", flush=True)
             finally:
