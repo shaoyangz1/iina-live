@@ -36,7 +36,7 @@ def _origin_of(room: str) -> str:
 def room_from_path(path: str) -> str:
     """把请求路径解析成房间地址(按默认房间所在平台)。
 
-    /live.flv 或 / → 启动时指定的默认房间(ROOM)
+    /live.flv 或 / → 启动时指定的默认房间(ROOM;serve-only 裸代理无默认时为 None)
     /lpl.flv       → <默认平台>/lpl
     /660000.flv    → <默认平台>/660000
     完整 http 路径直接用;忽略 .flv 后缀与查询串。
@@ -50,18 +50,33 @@ def room_from_path(path: str) -> str:
         return slug
     return _ORIGIN + slug
 
+
+def parse_request(path: str):
+    """把请求(路径 + 查询串)解析成 (room, quality)。
+
+    room   : ?room=<完整地址> 优先(cli 复用/跨平台时携带);否则按路径 slug 拼(见 room_from_path)。
+    quality: ?quality=<显示名或码率> 优先;否则用启动时的全局默认 QUALITY。
+    如此一个常驻代理即可服务任意房间/清晰度,复用现有代理时也不受其启动参数限制。"""
+    qs = urllib.parse.parse_qs(urllib.parse.urlparse(path).query)
+    room_q = qs.get("room", [None])[0]  # parse_qs 已解码
+    room = room_q if room_q else room_from_path(path)
+    quality = qs.get("quality", [None])[0]
+    return room, (quality if quality else QUALITY)
+
 # 活动连接计数与最后活动时间,供自动关闭看门狗判断
 _lock = threading.Lock()
 _active = 0
 _last_active = time.time()
 
 
-def resolve_lines(room):
-    """重新解析指定房间,返回 (线路列表[主+备用], 标题, 拉流头)。"""
+def resolve_lines(room, quality=None):
+    """重新解析指定房间,返回 (线路列表[主+备用], 标题, 拉流头)。quality 由调用方按请求给定。"""
     info = sites.parse(room)
     if not info["living"]:
         raise RuntimeError("未开播")
-    _, s = pick(info, QUALITY)
+    _, s = pick(info, quality)
+    if s is None:
+        raise RuntimeError("未取到可播放的 flv 流(可能仅提供 HLS 或流结构异常)")
     return [s["url"]] + s["backups"], info["title"], sites.play_headers(room)
 
 
@@ -100,9 +115,13 @@ class Handler(BaseHTTPRequestHandler):
             except (BrokenPipeError, ConnectionResetError):
                 pass
             return
-        room = room_from_path(self.path)
+        room, quality = parse_request(self.path)
+        if not room:
+            # serve-only 裸代理:无默认房间,请在地址带 ?room= 或用 /<房间号或别名>.flv
+            self.send_error(400, "no room: use ?room=<url> or /<id>.flv")
+            return
         try:
-            urls, title, headers = resolve_lines(room)
+            urls, title, headers = resolve_lines(room, quality)
         except Exception as e:
             self.send_error(503, str(e))
             return
@@ -110,13 +129,13 @@ class Handler(BaseHTTPRequestHandler):
         with _lock:
             _active += 1
         try:
-            self._stream(urls, title, room, headers)
+            self._stream(urls, title, room, headers, quality)
         finally:
             with _lock:
                 _active -= 1
                 _last_active = time.time()
 
-    def _stream(self, urls, title, room, headers):
+    def _stream(self, urls, title, room, headers, quality=None):
         self.send_response(200)
         self.send_header("Content-Type", "video/x-flv")
         self.send_header("Connection", "close")
@@ -218,7 +237,7 @@ class Handler(BaseHTTPRequestHandler):
 
             # 段结束后重新解析拿全新签名地址
             try:
-                urls, _, headers = resolve_lines(room)
+                urls, _, headers = resolve_lines(room, quality)
             except Exception:
                 pass
 
@@ -237,16 +256,17 @@ def watchdog(httpd):
 
 if __name__ == "__main__":
     # 命令行覆盖模块级默认:<房间地址> [端口] [清晰度] [宽限秒数]
+    # 房间为空串 = serve-only 裸代理:不绑默认房间(裸连报错,全靠请求带 ?room=)。
     if len(sys.argv) > 1:
-        ROOM = sys.argv[1]
-        _ORIGIN = _origin_of(ROOM)
+        ROOM = sys.argv[1] or None          # 空串 = serve-only 裸代理,无默认房间(裸连报错)
+        _ORIGIN = _origin_of(sys.argv[1])   # 空串 → 兜底 huya,故 /lpl.flv 等仍按默认平台解析
     if len(sys.argv) > 2:
         PORT = int(sys.argv[2])
     if len(sys.argv) > 3:
         QUALITY = sys.argv[3] or None
     if len(sys.argv) > 4:
         GRACE = int(sys.argv[4])
-    print(f"默认房间: {ROOM}")
+    print(f"默认房间: {ROOM or '(无 — 纯中转,请在地址带 ?room= 或 /<房间号>.flv)'}")
     print(f"默认地址: http://127.0.0.1:{PORT}/live.flv")
     print(f"任意房间: http://127.0.0.1:{PORT}/<房间号或别名>.flv  (如 /lpl.flv、/660000.flv)")
     if GRACE > 0:
@@ -254,4 +274,9 @@ if __name__ == "__main__":
     httpd = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     if GRACE > 0:
         threading.Thread(target=watchdog, args=(httpd,), daemon=True).start()
-    httpd.serve_forever()
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        print("\n收到 Ctrl+C，关闭代理。", flush=True)
+    finally:
+        httpd.server_close()   # 释放端口,干净退出

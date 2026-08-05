@@ -43,6 +43,10 @@ tests/               标准库 unittest
   `serve` 模式进一步在服务端重解析 + 改写 FLV 时间戳无缝续播。改动 `server.py` 的续播/去重逻辑要格外小心。
 - 播放器打开走 `iina://` scheme 或 mpv 直连;IINA 标题栏对网络直链只显示文件名,故用本地 m3u 的
   `#EXTINF` 名来显示标题。
+- **代理复用契约**:cli 生成的本地地址把房间/清晰度写进 query(`?room=&quality=`,`cli._serve_url`),
+  server 端 `parse_request` 据此解析(`?room=` 优先,否则路径 slug 网关;`?quality=` 优先,否则全局默认)。
+  这让一个常驻代理服务任意平台任意房间。`--mode serve-only` 起的裸代理 `ROOM=None`,裸连 `/live.flv`
+  报 400,全靠请求带 `?room=`。改这套 query 契约时 cli/server 两侧要同步,`test_roundtrips` 守着闭环。
 - 平台接口随风控变化,某平台解析失败多为接口调整,先看对应 `sites/<平台>.py` 的 `parse()`。
 
 ## 风格

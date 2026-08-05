@@ -14,7 +14,7 @@ import json as _json
 import unittest
 import urllib.parse
 
-from iina_live import common, server, sites
+from iina_live import common, server, sites, cli
 from iina_live.sites import huya, douyin, douyu, bilibili
 
 
@@ -137,28 +137,80 @@ class TestWsSecret(unittest.TestCase):
         self.assertEqual(got, expected)
 
 
-class TestRoomFromPath(unittest.TestCase):
-    """serve 代理按请求路径解析房间(iina-live server.room_from_path)。"""
+class TestParseRequest(unittest.TestCase):
+    """serve 代理按请求解析 (room, quality):?room=/?quality= 优先,回退路径 slug 与全局默认。"""
 
     def setUp(self):
         server.ROOM = "https://www.huya.com/lpl"
         server._ORIGIN = "https://www.huya.com/"
+        server.QUALITY = None
 
     def test_slug_path_uses_default_platform(self):
-        self.assertEqual(server.room_from_path("/lpl.flv"), "https://www.huya.com/lpl")
+        self.assertEqual(server.parse_request("/lpl.flv"), ("https://www.huya.com/lpl", None))
 
     def test_numeric_slug(self):
-        self.assertEqual(server.room_from_path("/660000.flv"), "https://www.huya.com/660000")
+        self.assertEqual(server.parse_request("/660000.flv"), ("https://www.huya.com/660000", None))
 
     def test_live_or_root_uses_default_room(self):
-        self.assertEqual(server.room_from_path("/live.flv"), "https://www.huya.com/lpl")
-        self.assertEqual(server.room_from_path("/"), "https://www.huya.com/lpl")
+        self.assertEqual(server.parse_request("/live.flv")[0], "https://www.huya.com/lpl")
+        self.assertEqual(server.parse_request("/")[0], "https://www.huya.com/lpl")
 
     def test_full_http_path_used_directly(self):
         self.assertEqual(
-            server.room_from_path("/https://live.bilibili.com/123"),
+            server.parse_request("/https://live.bilibili.com/123")[0],
             "https://live.bilibili.com/123",
         )
+
+    def test_room_query_overrides_path_cross_platform(self):
+        room = "https://live.bilibili.com/123"
+        path = "/live.flv?room=" + urllib.parse.quote(room, safe="")
+        self.assertEqual(server.parse_request(path)[0], room)
+
+    def test_quality_query_parsed(self):
+        room, quality = server.parse_request("/lpl.flv?quality=" + urllib.parse.quote("原画"))
+        self.assertEqual((room, quality), ("https://www.huya.com/lpl", "原画"))
+
+    def test_quality_query_overrides_global_default(self):
+        server.QUALITY = "蓝光"
+        self.assertEqual(server.parse_request("/lpl.flv?quality=原画")[1], "原画")
+
+    def test_quality_falls_back_to_global_default(self):
+        server.QUALITY = "蓝光"
+        self.assertEqual(server.parse_request("/lpl.flv")[1], "蓝光")
+
+    def test_no_default_room_bare_connect_empty(self):
+        # serve-only 裸代理:无默认房间时裸连 /live.flv 与 / 解析为空(do_GET 据此报 400),
+        # 但带房间号/别名(/lpl.flv)或 ?room= 仍正常解析。
+        server.ROOM = None
+        self.assertFalse(server.parse_request("/live.flv")[0])
+        self.assertFalse(server.parse_request("/")[0])
+        self.assertTrue(server.parse_request("/lpl.flv")[0])
+
+
+class TestServeUrl(unittest.TestCase):
+    """cli._serve_url 生成的地址把 room/quality 写进 query,并与 server.parse_request 闭环一致。"""
+
+    def setUp(self):
+        server.ROOM = "https://www.huya.com/lpl"
+        server._ORIGIN = "https://www.huya.com/"
+        server.QUALITY = None
+
+    def test_room_only_when_no_quality(self):
+        url = cli._serve_url(8787, "https://www.huya.com/lpl", None)
+        pr = urllib.parse.urlparse(url)
+        self.assertEqual((pr.netloc, pr.path), ("127.0.0.1:8787", "/live.flv"))
+        qs = urllib.parse.parse_qs(pr.query)
+        self.assertEqual(qs.get("room"), ["https://www.huya.com/lpl"])
+        self.assertNotIn("quality", qs)
+
+    def test_roundtrips_through_parse_request(self):
+        room = "https://live.bilibili.com/123"
+        pr = urllib.parse.urlparse(cli._serve_url(9000, room, "原画"))
+        self.assertEqual(server.parse_request(pr.path + "?" + pr.query), (room, "原画"))
+
+    def test_room_url_stays_readable(self):
+        url = cli._serve_url(8787, "https://www.huya.com/lpl", None)
+        self.assertIn("room=https://www.huya.com/lpl", url)
 
 
 # ---------- 抖音 ----------

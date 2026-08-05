@@ -26,11 +26,12 @@ uv run -m iina_live https://live.bilibili.com/24678311 # 哔哩哔哩
 **B 站原画/4K** 需登录取流:设环境变量 `BILI_COOKIE`(浏览器里的 `SESSDATA`)即可解锁,
 不设则走免登录、最高约蓝光。
 
-## 四种模式(`--mode`)
+## 五种模式(`--mode`)
 
 | 模式 | 说明 | 卡住能否恢复 |
 |------|------|-------------|
 | `serve`(默认) | 本地转流代理:固定地址 `http://127.0.0.1:<port>/live.flv`,断流时服务器自动重解析+重签+改写 FLV 时间戳无缝续播 | ✅✅ 自动自愈 |
+| `serve-only` | 只起常驻代理、不打开播放器(房间可省)。纯中转,别处用 `serve` 复用它播放,断流/转流日志集中在这个进程,方便同时开多个房间 | ✅✅ |
 | `m3u` | 生成含全部 CDN 线路的本地 m3u 播放列表 | ✅ 手动切「备用N」 |
 | `direct` | 单条 flv 直链 | ❌ |
 | `print` | 只解析打印各清晰度/线路地址 | — |
@@ -38,12 +39,23 @@ uv run -m iina_live https://live.bilibili.com/24678311 # 哔哩哔哩
 常用选项:`--quality 蓝光4M`、`--title "自定义"`、`--player mpv`、`--port 8787`、
 `--grace <秒>`(serve 无连接自动退出,默认 180,`0` 常驻)。
 
-## 网关模式
+## 网关 / 复用:一个常驻代理播任意房间
 
-`serve` 的代理按请求路径自动解析房间,一个常驻服务器可播任意房间:
+`serve` 模式**不会**杀掉已有代理:从 `--port` 起扫描,发现本 skill 的代理(靠 `/__ping__` 识别)就
+直接复用。请求把房间与清晰度写进 query(`?room=<完整地址>&quality=<档>`),故复用别处代理时也按
+本次请求解析、不受其启动平台/清晰度限制。也支持路径网关:
 
-- `http://127.0.0.1:<port>/lpl.flv` → `huya.com/lpl`
+- `?room=https://live.bilibili.com/123` → 该 B 站房间(跨平台复用)
+- `http://127.0.0.1:<port>/lpl.flv` → `huya.com/lpl`(按代理默认平台拼)
 - `http://127.0.0.1:<port>/660000.flv` → 房间号 660000
+
+先起一个常驻裸代理,再从别处复用它播不同房间(日志都集中在裸代理进程):
+
+```bash
+uv run -m iina_live --mode serve-only            # 常驻裸代理
+uv run -m iina_live https://www.huya.com/lpl     # 另开命令行,复用上面的代理
+uv run -m iina_live https://live.douyin.com/123456
+```
 
 ## 结构 / 扩展新平台
 
