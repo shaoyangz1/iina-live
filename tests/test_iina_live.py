@@ -559,6 +559,19 @@ class TestBangumi(unittest.TestCase):
         season = {"episodes": [{"id": 1, "cid": 11}, {"id": 2, "cid": 22}, {"id": 3, "cid": 33}]}
         self.assertEqual(bangumi._pick_episode(season, "ss", 0, episode=2)["cid"], 22)
 
+    def test_pick_episode_by_title_number(self):
+        # 列表位置≠正片集号时(混入重制版),按 ep.title 集号匹配优先
+        season = {"episodes": [
+            {"title": "1重制版", "cid": 1}, {"title": "1", "cid": 10},
+            {"title": "2", "cid": 20}, {"title": "3", "cid": 30}]}
+        # 要第 2 集 → 命中 title=="2"(cid 20),而非列表第 2 项(cid 10)
+        self.assertEqual(bangumi._pick_episode(season, "ss", 0, episode=2)["cid"], 20)
+
+    def test_pick_episode_title_miss_falls_back_to_index(self):
+        # title 非集号(电影/特别篇)时回退列表位置
+        season = {"episodes": [{"title": "预告", "cid": 1}, {"title": "正片", "cid": 2}]}
+        self.assertEqual(bangumi._pick_episode(season, "ss", 0, episode=2)["cid"], 2)
+
     def test_pick_episode_number_overrides_ep_id(self):
         # 显式 episode 优先于 ep 地址里的 ep_id
         season = {"episodes": [{"id": 100, "cid": 11}, {"id": 200, "cid": 22}]}

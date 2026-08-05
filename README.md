@@ -107,7 +107,8 @@ url           直播间地址(如 https://live.bilibili.com/24678311),--mode ser
   uv run -m iina_live https://www.bilibili.com/bangumi/play/ep285395           # ep 地址精确到某集
   ```
 
-  给 `ss`(整季)地址时用 `--episode N`(第几集,1 起)或 `--episode latest`(最新一集)选集;`ep` 地址本身已精确到某集,但**同样支持
+  给 `ss`(整季)地址时用 `--episode N`(**正片集号**,优先按分集标题里的集号匹配,长番混入重制版/特别篇时
+  也能对上;匹配不到才按列表位置)或 `--episode latest`(最新一集)选集;`ep` 地址本身已精确到某集,但**同样支持
   `--episode`**(内部按 ep 已取到整季分集),且解析时会打印出该内容的整季 `ss` 号(等于从 ep 反查 ss)。点播没有断流
   问题,故自动走 `direct`(不启 serve 代理),取 **DASH 流**(音视频分轨,自动把音轨作 `--audio-file` 一并
   交给播放器)。大会员正片用 `--login bilibili` 的 cookie 解锁,画质可达 **1080P高码率 / 4K / HDR**

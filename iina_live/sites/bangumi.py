@@ -49,7 +49,8 @@ def resolve_id(url: str):
 def _pick_episode(season: dict, kind: str, num: int, episode=None) -> dict:
     """从 season 的分集列表挑目标集(纯函数):
     - episode=='latest' → 最后一集(最新);
-    - episode 为正整数(1 起)→ 第 episode 集(超范围返回 {});
+    - episode 为正整数 → **优先按正片集号匹配**(ep.title == 该数字,长番混入重制版/特别篇时
+      列表位置≠集号,故按集号更符合直觉),匹配不到再回退到列表第 episode 项(超范围 {});
     - 否则 ep 地址精确匹配 ep_id,ss 地址取第一集(正片首集)。"""
     eps = season.get("episodes") or []
     if not eps:
@@ -57,6 +58,9 @@ def _pick_episode(season: dict, kind: str, num: int, episode=None) -> dict:
     if episode == "latest":
         return eps[-1]
     if episode is not None:
+        hit = next((e for e in eps if str(e.get("title", "")).strip() == str(episode)), None)
+        if hit:
+            return hit
         return eps[episode - 1] if 1 <= episode <= len(eps) else {}
     if kind == "ep":
         return next((e for e in eps if e.get("id") == num), eps[0])
