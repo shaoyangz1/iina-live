@@ -7,7 +7,7 @@
 自动关闭: 客户端断开后,若在宽限期(默认 180 秒)内无新连接则进程自动退出,
 避免关掉播放器后代理空占端口常驻。设 GRACE<=0 可关闭该行为(保持常驻)。
 
-用法: python server.py <房间地址> [端口=8787] [清晰度] [宽限秒数=180]
+用法: python -m iina_live.server <房间地址> [端口=8787] [清晰度] [宽限秒数=180]
 """
 import sys
 import time
@@ -16,17 +16,21 @@ import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-import sites
-from common import pick
+from . import sites
+from .common import pick
 
-ROOM = sys.argv[1] if len(sys.argv) > 1 else "https://www.huya.com/lpl"
-PORT = int(sys.argv[2]) if len(sys.argv) > 2 else 8787
-QUALITY = sys.argv[3] if len(sys.argv) > 3 else None
-GRACE = int(sys.argv[4]) if len(sys.argv) > 4 else 180  # 秒;<=0 表示永不自动退出
-
+# 全局配置:导入时用安全默认(模块可无副作用导入、便于测试),main 块再从命令行覆盖。
+ROOM = "https://www.huya.com/lpl"  # 默认房间(未指定房间的请求回退到它)
+PORT = 8787
+QUALITY = None  # 默认清晰度(None/"" = 最高)
+GRACE = 180  # 空闲自动退出秒数;<=0 表示常驻
 # 默认房间的来源(scheme://host/),供路径网关按同平台拼房间地址
-_o = urllib.parse.urlparse(ROOM)
-_ORIGIN = f"{_o.scheme}://{_o.netloc}/" if _o.netloc else "https://www.huya.com/"
+_ORIGIN = "https://www.huya.com/"
+
+
+def _origin_of(room: str) -> str:
+    o = urllib.parse.urlparse(room)
+    return f"{o.scheme}://{o.netloc}/" if o.netloc else "https://www.huya.com/"
 
 
 def room_from_path(path: str) -> str:
@@ -232,6 +236,16 @@ def watchdog(httpd):
 
 
 if __name__ == "__main__":
+    # 命令行覆盖模块级默认:<房间地址> [端口] [清晰度] [宽限秒数]
+    if len(sys.argv) > 1:
+        ROOM = sys.argv[1]
+        _ORIGIN = _origin_of(ROOM)
+    if len(sys.argv) > 2:
+        PORT = int(sys.argv[2])
+    if len(sys.argv) > 3:
+        QUALITY = sys.argv[3] or None
+    if len(sys.argv) > 4:
+        GRACE = int(sys.argv[4])
     print(f"默认房间: {ROOM}")
     print(f"默认地址: http://127.0.0.1:{PORT}/live.flv")
     print(f"任意房间: http://127.0.0.1:{PORT}/<房间号或别名>.flv  (如 /lpl.flv、/660000.flv)")

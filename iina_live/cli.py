@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """iina-live 命令行入口。
 
-    python cli.py <房间地址> [选项]
+    python -m iina_live <房间地址> [选项]
 
 选项:
     --quality Q     清晰度显示名或码率(如 "原画" / 蓝光10M / 2000)，默认最高
@@ -23,9 +23,7 @@ import tempfile
 import urllib.parse
 import urllib.request
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import sites
-import common
+from . import sites, common
 
 PORT_SCAN = 20   # 从 --port 起最多向后扫描多少个端口
 
@@ -134,8 +132,7 @@ def main():
     if reuse:
         print(f"复用已有代理 (端口 {port})，无需新起。")
     else:
-        here = os.path.dirname(os.path.abspath(__file__))
-        srv = subprocess.Popen([sys.executable, os.path.join(here, "server.py"),
+        srv = subprocess.Popen([sys.executable, "-m", "iina_live.server",
                                 a.url, str(port), a.quality or "", str(a.grace)])
         import time
         time.sleep(4)

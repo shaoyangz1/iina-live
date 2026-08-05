@@ -3,6 +3,7 @@
 
 各平台解析模块(如 huya.py)与派发层(sites.py)共用这里的东西。
 """
+import gzip
 import hashlib
 import urllib.parse
 import urllib.request
@@ -17,9 +18,17 @@ DEFAULT_UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1
               "(KHTML, like Gecko) Version/17.3.1 Safari/605.1.15")
 
 
-def http_get(url, headers=None, timeout=15):
-    req = urllib.request.Request(url, headers=headers or {})
-    return urllib.request.urlopen(req, timeout=timeout).read()
+def _gunzip(raw: bytes) -> bytes:
+    """部分接口即使未在头里声明也返回 gzip(magic 1f 8b),透明解压。"""
+    if raw[:2] == b"\x1f\x8b":
+        return gzip.decompress(raw)
+    return raw
+
+
+def http_get(url, headers=None, timeout=15, data=None):
+    """data 为 None 时 GET,否则 POST(bytes body);返回已透明解压的原始字节。"""
+    req = urllib.request.Request(url, data=data, headers=headers or {})
+    return _gunzip(urllib.request.urlopen(req, timeout=timeout).read())
 
 
 def md5(s: str) -> str:
