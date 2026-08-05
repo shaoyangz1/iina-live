@@ -13,6 +13,7 @@ room_init 短号转真房号 → getRoomPlayInfo 拿多档多线路 flv。
 import os
 import json
 import time
+import datetime
 import pathlib
 import urllib.parse
 import urllib.request
@@ -131,6 +132,21 @@ def _load_cookie():
     return None
 
 
+def _cookie_expiry(cookie):
+    """从 cookie 串里的 SESSDATA 解析过期 Unix 时间戳(纯函数,不联网)。
+
+    SESSDATA 是 URL 编码的「创建戳,过期戳,签名」三段,第二段即过期时间;解析不出返回 None。"""
+    if not cookie:
+        return None
+    for kv in cookie.split(";"):
+        kv = kv.strip()
+        if kv.startswith("SESSDATA="):
+            parts = urllib.parse.unquote(kv[len("SESSDATA="):]).split(",")
+            if len(parts) >= 2 and parts[1].isdigit():
+                return int(parts[1])
+    return None
+
+
 def _save_cookie(cookie: str) -> pathlib.Path:
     p = _cookie_path()
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -212,3 +228,28 @@ def login() -> int:
         time.sleep(2)
     print("登录超时(180s),请重试。")
     return 1
+
+
+def login_status() -> int:
+    """查看 B 站登录状态:本地算 cookie 剩余有效期,联网确认登录态与会员类型。"""
+    cookie = _load_cookie()
+    if not cookie:
+        print("未登录(无 cookie)。用 `--login bilibili` 扫码登录。")
+        return 1
+    try:
+        nav = _get_json("https://api.bilibili.com/x/web-interface/nav", cookie).get("data", {})
+    except Exception as e:
+        print(f"cookie 已存,但查询登录态失败:{e!r}")
+        return 1
+    if not nav.get("isLogin"):
+        print("cookie 已失效(接口返回未登录)。请重新 `--login bilibili`。")
+        return 1
+    vip = {0: "非大会员", 1: "大会员", 2: "年度大会员"}.get(nav.get("vipType"), "未知")
+    print(f"已登录 : {nav.get('uname')}")
+    print(f"会员   : {vip}")
+    exp = _cookie_expiry(cookie)
+    if exp:
+        left = (exp - int(time.time())) / 86400
+        when = datetime.datetime.fromtimestamp(exp).strftime("%Y-%m-%d")
+        print(f"cookie : {when} 过期(剩余 {left:.0f} 天)")
+    return 0

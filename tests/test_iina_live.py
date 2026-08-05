@@ -655,6 +655,15 @@ class TestBiliCookie(unittest.TestCase):
         p = bilibili._cookie_path()
         self.assertEqual(str(p), "/tmp/xdgcfg/iina-live/bilibili_cookie")
 
+    def test_cookie_expiry_parsed(self):
+        # SESSDATA 是 URL 编码的「创建戳,过期戳,签名」,取第二段
+        sess = urllib.parse.quote("abc123,1750000000,def45*31")
+        self.assertEqual(bilibili._cookie_expiry(f"SESSDATA={sess}; bili_jct=x"), 1750000000)
+
+    def test_cookie_expiry_missing(self):
+        self.assertIsNone(bilibili._cookie_expiry("bili_jct=x"))
+        self.assertIsNone(bilibili._cookie_expiry(None))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

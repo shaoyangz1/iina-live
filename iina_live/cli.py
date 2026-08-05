@@ -16,6 +16,7 @@
     --port P        serve 模式端口，默认 8787
     --player P      direct/m3u 模式播放器: iina(默认) / mpv
     --login bilibili 扫码登录(终端出二维码)，cookie 存本地供 B 站取流解锁原画/4K
+    --login-status  查看 B 站登录状态、会员类型与 cookie 剩余有效期
 
 番剧/影视点播见另一个包:python -m iina_series <番剧地址>
 """
@@ -129,7 +130,12 @@ def main():
                     help="serve 模式:无连接空闲多少秒后自动退出，<=0 常驻，默认 180")
     ap.add_argument("--login", choices=["bilibili"], default=None,
                     help="扫码登录(目前支持 bilibili):终端出二维码，登录后 cookie 存本地供取流解锁原画/4K")
+    ap.add_argument("--login-status", action="store_true",
+                    help="查看 B 站登录状态、会员类型与 cookie 剩余有效期")
     a = ap.parse_args()
+    if a.login_status:
+        from .sites import bilibili
+        return bilibili.login_status()
     if a.login:
         from .sites import bilibili
         return bilibili.login()          # 扫码登录，无需房间地址

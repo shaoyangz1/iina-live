@@ -97,7 +97,8 @@ url           直播间地址(如 https://live.bilibili.com/24678311),--mode ser
      手机 App 扫码确认,cookie 自动存到 `~/.config/iina-live/bilibili_cookie`(仅本人可读),之后取流自动带上;
   2. 或设环境变量 `BILI_COOKIE`(浏览器里的 `SESSDATA`)。
 
-  都没有则走免登录,最高约蓝光。
+  都没有则走免登录,最高约蓝光。查看登录态与有效期:`uv run -m iina_live --login-status`
+  (显示用户名、会员类型、cookie 剩余天数——过期时间从 SESSDATA 本地解析,登录态联网确认)。
 
 > **番剧/影视点播**属于另一个包 [`iina_series`](#番剧影视点播iina_series),不在 iina_live(纯直播)里。
 
