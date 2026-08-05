@@ -81,6 +81,21 @@ class TestM3U(unittest.TestCase):
             ["#EXTM3U", "#EXTINF:-1 ,标题", "http://127.0.0.1:8787/live.flv"],
         )
 
+    def test_iina_local_url_plain(self):
+        u = common.iina_local_url("标题", "/tmp/x.m3u")
+        self.assertTrue(u.startswith("iina://open?"))
+        self.assertIn("mpv_force-media-title=", u)   # 靠 #EXTINF 显示标题,但仍带上
+        self.assertNotIn("mpv_audio-file=", u)
+
+    def test_iina_local_url_with_headers_and_audio(self):
+        # direct 模式:本地 m3u + referer/UA + DASH 音轨
+        u = common.iina_local_url("标题", "/tmp/x.m3u",
+                                  {"Referer": "https://www.bilibili.com/", "User-Agent": "UA"},
+                                  "https://cdn/audio.m4s")
+        self.assertIn("mpv_referrer=", u)
+        self.assertIn("mpv_user-agent=", u)
+        self.assertIn("mpv_audio-file=", u)
+
 
 class TestHttpHelpers(unittest.TestCase):
     def test_gunzip_passthrough_plain(self):

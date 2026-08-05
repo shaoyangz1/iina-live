@@ -92,6 +92,17 @@ def _open_iina(url):
     subprocess.run(["open", url])
 
 
+def _open_iina_m3u(rid, title, url, headers=None, audio=None):
+    """给 IINA 一个含直链的本地 m3u,靠 #EXTINF 名显示标题(IINA 对网络直链 force-media-title
+    在标题栏不生效);direct 模式还需带 referer/UA(+DASH 音轨),serve 模式 headers 留空。"""
+    d = os.path.join(tempfile.gettempdir(), "IINA-LIVE")
+    os.makedirs(d, exist_ok=True)
+    m3u = os.path.join(d, f"{rid}.m3u")
+    with open(m3u, "w") as f:
+        f.write(common.single_m3u(title, url))
+    _open_iina(common.iina_local_url(title, m3u, headers, audio))
+
+
 def _open_mpv(flv, title, headers, audio=None):
     args = ["mpv", flv, f"--force-media-title={title}", "--ytdl=no",
             f"--stream-lavf-o={common.RECONNECT}"]
@@ -221,7 +232,7 @@ def play_room(url, a):
         if a.player == "mpv":
             _open_mpv(flv, title, headers, audio)
         else:
-            _open_iina(common.iina_url(title, flv, headers, audio))
+            _open_iina_m3u(info["rid"], title, flv, headers, audio)  # 本地 m3u 让 IINA 显示标题
         note = "，已配 DASH 音轨" if audio else ""
         print(f"已用直链打开 ({a.player}){note}。注意:卡住无法自动恢复。")
         return 0
@@ -258,14 +269,9 @@ def play_room(url, a):
     if a.player == "mpv":
         _open_mpv(local, title, {})   # 本地代理已带好平台头，mpv 直连 localhost 不需要
     else:
-        # IINA 标题栏对网络直链只显示文件名，force-media-title 不生效；
-        # 改用单条本地 m3u，靠 #EXTINF 名让 IINA 显示房间名（iina-plus 同款机制）。
-        d = os.path.join(tempfile.gettempdir(), "IINA-LIVE")
-        os.makedirs(d, exist_ok=True)
-        m3u = os.path.join(d, f"{info['rid']}.m3u")
-        with open(m3u, "w") as f:
-            f.write(common.single_m3u(title, local))
-        _open_iina(common.iina_local_url(title, m3u))
+        # IINA 标题栏对网络直链只显示文件名，force-media-title 不生效；改用本地 m3u 靠 #EXTINF 名
+        # 显示房间名。local 是 localhost 代理，referer/UA 由代理负责，不用带 headers。
+        _open_iina_m3u(info["rid"], title, local)
     print(f"地址:{local}")
 
     if reuse:

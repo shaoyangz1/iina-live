@@ -78,9 +78,14 @@ def iina_url(title: str, flv: str, headers: dict = None, audio: str = None) -> s
     return _scheme(flv, title, opts)
 
 
-def iina_local_url(title: str, local_url: str) -> str:
-    """本地代理:mpv 播 localhost,referer/UA 由代理服务器负责,这里不需要。"""
-    return _scheme(local_url, title, {})
+def iina_local_url(title: str, local_url: str, headers: dict = None, audio: str = None) -> str:
+    """打开本地 m3u(靠 #EXTINF 名显示标题):
+    - serve 模式:local_url 是 localhost 代理,referer/UA 由代理负责,headers 留空;
+    - direct 模式:m3u 里是平台 CDN 直链,需带 referer/UA;DASH 点播再带 audio 音轨。"""
+    opts = _header_opts(headers)
+    if audio:
+        opts["audio-file"] = audio
+    return _scheme(local_url, title, opts)
 
 
 def m3u_content(title: str, stream: dict) -> str:
