@@ -92,9 +92,11 @@ def _open_iina(url):
     subprocess.run(["open", url])
 
 
-def _open_mpv(flv, title, headers):
+def _open_mpv(flv, title, headers, audio=None):
     args = ["mpv", flv, f"--force-media-title={title}", "--ytdl=no",
             f"--stream-lavf-o={common.RECONNECT}"]
+    if audio:                                        # DASH 点播:独立音轨
+        args.append(f"--audio-file={audio}")
     if headers.get("Referer"):
         args.append(f"--referrer={headers['Referer']}")
     if headers.get("User-Agent"):
@@ -215,11 +217,13 @@ def play_room(url, a):
         return 0
 
     if a.mode == "direct":
+        audio = stream.get("audio")   # DASH 点播(如番剧高清)的独立音轨,直播为 None
         if a.player == "mpv":
-            _open_mpv(flv, title, headers)
+            _open_mpv(flv, title, headers, audio)
         else:
-            _open_iina(common.iina_url(title, flv, headers))
-        print(f"已用直链打开 ({a.player})。注意:卡住无法自动恢复。")
+            _open_iina(common.iina_url(title, flv, headers, audio))
+        note = "，已配 DASH 音轨" if audio else ""
+        print(f"已用直链打开 ({a.player}){note}。注意:卡住无法自动恢复。")
         return 0
 
     if a.mode == "m3u":

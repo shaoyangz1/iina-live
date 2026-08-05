@@ -51,7 +51,9 @@ tests/               标准库 unittest
 - 平台接口随风控变化,某平台解析失败多为接口调整,先看对应 `sites/<平台>.py` 的 `parse()`。
 - **点播(VOD) vs 直播**:平台模块可声明 `VOD=True`(如 `bangumi`,B 站番剧),`sites.is_vod()` 据此让 cli
   自动走 `direct`(点播是完整文件,serve 转流/断流续播无意义)。番剧走 pgc `playurl`(明文、无需 wbi),
-  fnval=1 取 mp4 合并流单直链;派发上 `bangumi` 的宽泛域名 `bilibili.com` 必须排在直播 `bilibili`
+  fnval=4048 取 DASH(VIP 高清 1080P+/4K/HDR,音视频分轨:stream 带 `audio` 字段,direct 模式把音轨作
+  `--audio-file`/`mpv_audio-file` 一并交给播放器;`fnval=1` mp4 天花板仅 720P,只作回退)。派发上
+  `bangumi` 的宽泛域名 `bilibili.com` 必须排在直播 `bilibili`
   (`live.bilibili.com`)之后。选集:`--episode N` 由 `sites.parse(url, episode=)` **仅对 VOD 平台**透传
   (直播 `parse(url)` 签名不变);`ss` 地址按集号取、`ep` 地址精确到集。
 - **B 站登录**:`--login bilibili` 走扫码(qrcode/generate → 终端二维码 → poll 轮询 → cookie 落盘

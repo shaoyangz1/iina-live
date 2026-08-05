@@ -69,9 +69,13 @@ def _header_opts(headers: dict) -> dict:
     return opts
 
 
-def iina_url(title: str, flv: str, headers: dict = None) -> str:
-    """直链/含直链的本地文件(m3u):mpv 直接拉流,需带平台的 referer/UA。"""
-    return _scheme(flv, title, _header_opts(headers))
+def iina_url(title: str, flv: str, headers: dict = None, audio: str = None) -> str:
+    """直链/含直链的本地文件(m3u):mpv 直接拉流,需带平台的 referer/UA。
+    audio 非空时(DASH 点播,音视频分轨)作为独立音轨(mpv audio-file)一并交给播放器。"""
+    opts = _header_opts(headers)
+    if audio:
+        opts["audio-file"] = audio
+    return _scheme(flv, title, opts)
 
 
 def iina_local_url(title: str, local_url: str) -> str:

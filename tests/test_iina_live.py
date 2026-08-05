@@ -591,6 +591,29 @@ class TestBangumi(unittest.TestCase):
     def test_streams_from_play_empty(self):
         self.assertEqual(bangumi._streams_from_play({"durl": []}), {})
 
+    def test_streams_from_dash(self):
+        dash = {
+            "video": [
+                {"id": 120, "codecs": "hev1", "baseUrl": "http://v/4k_h265", "backupUrl": ["http://v2/h265"]},
+                {"id": 120, "codecs": "avc1", "baseUrl": "http://v/4k_h264", "backupUrl": ["http://v2/4k"]},
+                {"id": 80, "codecs": "avc1", "baseUrl": "http://v/1080", "backup_url": []},
+            ],
+            "audio": [
+                {"id": 30232, "bandwidth": 132000, "baseUrl": "http://a/mid"},
+                {"id": 30280, "bandwidth": 192000, "baseUrl": "http://a/hi"},
+            ],
+        }
+        s = bangumi._streams_from_dash(dash)
+        # 最高档 4K，同 qn 优先 H.264(avc1)，音轨取最高码率
+        self.assertEqual(s["4K"]["quality"], 120)
+        self.assertEqual(s["4K"]["url"], "http://v/4k_h264")
+        self.assertEqual(s["4K"]["audio"], "http://a/hi")
+        self.assertEqual(s["4K"]["backups"], ["http://v2/4k"])
+        self.assertEqual(s["1080P"]["url"], "http://v/1080")
+
+    def test_streams_from_dash_empty(self):
+        self.assertEqual(bangumi._streams_from_dash({"video": [], "audio": []}), {})
+
     def test_dispatch_bangumi_vs_live(self):
         # www.bilibili.com/bangumi → 番剧;live.bilibili.com → 直播(不被番剧抢)
         self.assertIs(sites.get_site("https://www.bilibili.com/bangumi/play/ep1"), bangumi)

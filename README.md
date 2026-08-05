@@ -109,8 +109,9 @@ url           直播间地址(如 https://live.bilibili.com/24678311),--mode ser
 
   给 `ss`(整季)地址时用 `--episode N`(第几集,1 起)或 `--episode latest`(最新一集)选集;`ep` 地址本身已精确到某集,但**同样支持
   `--episode`**(内部按 ep 已取到整季分集),且解析时会打印出该内容的整季 `ss` 号(等于从 ep 反查 ss)。点播没有断流
-  问题,故自动走 `direct`(不启 serve 代理),取 fnval=1 的 **mp4 合并流**直链交给播放器。大会员/付费
-  正片用 `--login bilibili` 的 cookie 解锁;画质通常 720P–1080P(更高清的 DASH 分轨暂未做)。
+  问题,故自动走 `direct`(不启 serve 代理),取 **DASH 流**(音视频分轨,自动把音轨作 `--audio-file` 一并
+  交给播放器)。大会员正片用 `--login bilibili` 的 cookie 解锁,画质可达 **1080P高码率 / 4K / HDR**
+  (默认取最高,`--quality` 可指定档位如 `1080P`)。
 
 ## 项目结构
 
@@ -127,7 +128,7 @@ iina_live/               # 主包
     douyin.py            # 抖音解析:ttwid cookie / 房间页 SSR 数据
     douyu.py             # 斗鱼解析:getEncryption + 纯 MD5 auth + getH5PlayV1
     bilibili.py          # B 站直播解析:room_init + getRoomPlayInfo(免签名)
-    bangumi.py           # B 站番剧(点播):pgc playurl → mp4 直链,走 direct
+    bangumi.py           # B 站番剧(点播):pgc playurl → DASH 高清(视频+音轨),走 direct
 tests/                   # 标准库 unittest,零依赖、不触网
 ```
 

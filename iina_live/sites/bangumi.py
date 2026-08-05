@@ -64,18 +64,43 @@ def _pick_episode(season: dict, kind: str, num: int, episode=None) -> dict:
 
 
 def _streams_from_play(play: dict, qn_fallback: int = 0) -> dict:
-    """从 playurl 的 result 提取单档流(纯函数,不触网)。
-
-    fnval=1 的 mp4 通常单段:取 durl[0] 主 url + backup_url 作备用线路(多 CDN)。
-    番剧偶有分段(durl 多个)时仅取首段,其余忽略(正片多为单段)。"""
+    """mp4(fnval=1)回退:从 durl 取单段合并流(最高约 720P)。纯函数。"""
     durl = play.get("durl") or []
     if not durl:
         return {}
     qn = play.get("quality", qn_fallback)
     name = _QN_NAME.get(qn, str(qn))
     first = durl[0]
-    backups = list(first.get("backup_url") or [])
-    return {name: {"quality": qn, "url": first["url"], "backups": backups}}
+    return {name: {"quality": qn, "url": first["url"], "backups": list(first.get("backup_url") or [])}}
+
+
+def _base(x: dict) -> str:
+    return x.get("baseUrl") or x.get("base_url") or ""
+
+
+def _streams_from_dash(dash: dict) -> dict:
+    """从 DASH 提取各档流(纯函数,不触网):VIP 高清(1080P+/4K/HDR)都在这里。
+
+    音视频分轨:每档=一条视频轨 + 一条(全局最高码率)音频轨,播放时音频作 audio-file 合并。
+    同一清晰度(qn=id)常有多 codec,优先 H.264(avc1)以求最广兼容,没有再取第一条。"""
+    videos = dash.get("video") or []
+    audios = dash.get("audio") or []
+    if not videos or not audios:
+        return {}
+    audio_url = _base(max(audios, key=lambda a: a.get("bandwidth", 0)))
+    streams = {}
+    for qn in sorted({v.get("id") for v in videos}, reverse=True):
+        cands = [v for v in videos if v.get("id") == qn]
+        v = next((x for x in cands if (x.get("codecs") or "").startswith("avc")), cands[0])
+        name = _QN_NAME.get(qn, str(qn))
+        if name not in streams:
+            streams[name] = {
+                "quality": qn,
+                "url": _base(v),
+                "backups": list(v.get("backupUrl") or v.get("backup_url") or []),
+                "audio": audio_url,
+            }
+    return streams
 
 
 def parse(url: str, episode: int = None) -> dict:
@@ -102,15 +127,18 @@ def parse(url: str, episode: int = None) -> dict:
     # 标题:季名 + 分集短标题(如「第1话 XXX」)
     parts = [season.get("season_title") or "", ep.get("title") or "", ep.get("long_title") or ""]
     info["title"] = " ".join(p for p in parts if p) or info["nick"]
-    # 取流:fnval=1 → mp4 合并流;qn=112 尽量高,无权限接口自动降档
+    # 取流:fnval=4048 → DASH(VIP 高清 1080P+/4K/HDR,音视频分轨);qn 传最高,接口按权限给全部可用档。
+    # fourk=1 放行 4K。大会员正片需登录 cookie(见 bilibili._load_cookie)。
     q = urllib.parse.urlencode({
-        "cid": ep["cid"], "bvid": ep.get("bvid", ""), "qn": 112,
-        "fnver": 0, "fnval": 1, "fourk": 1,
+        "cid": ep["cid"], "bvid": ep.get("bvid", ""), "qn": 127,
+        "fnver": 0, "fnval": 4048, "fourk": 1,
     })
     play = _get_json(
         f"https://api.bilibili.com/pgc/player/web/playurl?{q}", bilibili._load_cookie()
     )
     if play.get("code") == -10403:
-        raise RuntimeError("该内容需要大会员;请先 `--login bilibili` 用会员账号登录")
-    info["streams"] = _streams_from_play(play.get("result") or {})
+        raise RuntimeError("该内容需要大会员/地区限制;请先 `--login bilibili` 用会员账号登录")
+    result = play.get("result") or {}
+    # 优先 DASH(高清);极少数只给 durl 的走 mp4 回退(最高约 720P)
+    info["streams"] = _streams_from_dash(result.get("dash") or {}) or _streams_from_play(result)
     return info
