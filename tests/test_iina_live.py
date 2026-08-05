@@ -16,7 +16,7 @@ import unittest
 import urllib.parse
 
 from iina_live import common, server, sites, cli, qr
-from iina_live.sites import huya, douyin, douyu, bilibili
+from iina_live.sites import huya, douyin, douyu, bilibili, bangumi
 
 
 def _stream(quality, url="u0", backups=("u1", "u2")):
@@ -536,6 +536,45 @@ class TestBiliDispatch(unittest.TestCase):
     def test_play_headers_has_referer(self):
         h = sites.play_headers("https://live.bilibili.com/123456")
         self.assertEqual(h["Referer"], "https://live.bilibili.com/")
+
+
+class TestBangumi(unittest.TestCase):
+    def test_resolve_ep_and_ss(self):
+        self.assertEqual(bangumi.resolve_id("https://www.bilibili.com/bangumi/play/ep123456"), ("ep", 123456))
+        self.assertEqual(bangumi.resolve_id("https://www.bilibili.com/bangumi/play/ss28229"), ("ss", 28229))
+
+    def test_resolve_non_bangumi_raises(self):
+        with self.assertRaises(RuntimeError):
+            bangumi.resolve_id("https://www.bilibili.com/video/BV1xx")
+
+    def test_pick_episode_ep_exact(self):
+        season = {"episodes": [{"id": 1, "cid": 11}, {"id": 2, "cid": 22}]}
+        self.assertEqual(bangumi._pick_episode(season, "ep", 2)["cid"], 22)
+
+    def test_pick_episode_ss_first(self):
+        season = {"episodes": [{"id": 1, "cid": 11}, {"id": 2, "cid": 22}]}
+        self.assertEqual(bangumi._pick_episode(season, "ss", 28229)["cid"], 11)
+
+    def test_pick_episode_empty(self):
+        self.assertEqual(bangumi._pick_episode({"episodes": []}, "ss", 1), {})
+
+    def test_streams_from_play(self):
+        play = {"quality": 80, "durl": [{"url": "http://x/v.mp4", "backup_url": ["http://y/v.mp4"]}]}
+        s = bangumi._streams_from_play(play)
+        self.assertEqual(s["1080P"], {"quality": 80, "url": "http://x/v.mp4", "backups": ["http://y/v.mp4"]})
+
+    def test_streams_from_play_empty(self):
+        self.assertEqual(bangumi._streams_from_play({"durl": []}), {})
+
+    def test_dispatch_bangumi_vs_live(self):
+        # www.bilibili.com/bangumi → 番剧;live.bilibili.com → 直播(不被番剧抢)
+        self.assertIs(sites.get_site("https://www.bilibili.com/bangumi/play/ep1"), bangumi)
+        self.assertIs(sites.get_site("https://live.bilibili.com/123"), bilibili)
+
+    def test_is_vod(self):
+        self.assertTrue(sites.is_vod("https://www.bilibili.com/bangumi/play/ep1"))
+        self.assertFalse(sites.is_vod("https://live.bilibili.com/123"))
+        self.assertFalse(sites.is_vod("https://www.huya.com/lpl"))
 
 
 class TestUnsupportedPlatform(unittest.TestCase):

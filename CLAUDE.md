@@ -14,7 +14,7 @@
 ```
 iina_live/           主包(cli 入口 / server 代理 / common 工具)
   qr.py              纯标准库 QR 生成 + 终端渲染(B 站扫码登录用)
-  sites/             平台层:__init__.py 派发,每平台一个模块(huya/douyin/douyu/bilibili)
+  sites/             平台层:__init__.py 派发,每平台一个模块(huya/douyin/douyu/bilibili 直播 + bangumi 番剧点播)
 tests/               标准库 unittest
 ```
 
@@ -49,6 +49,10 @@ tests/               标准库 unittest
   这让一个常驻代理服务任意平台任意房间。`--mode serve-only` 起的裸代理 `ROOM=None`,裸连 `/live.flv`
   报 400,全靠请求带 `?room=`。改这套 query 契约时 cli/server 两侧要同步,`test_roundtrips` 守着闭环。
 - 平台接口随风控变化,某平台解析失败多为接口调整,先看对应 `sites/<平台>.py` 的 `parse()`。
+- **点播(VOD) vs 直播**:平台模块可声明 `VOD=True`(如 `bangumi`,B 站番剧),`sites.is_vod()` 据此让 cli
+  自动走 `direct`(点播是完整文件,serve 转流/断流续播无意义)。番剧走 pgc `playurl`(明文、无需 wbi),
+  fnval=1 取 mp4 合并流单直链;派发上 `bangumi` 的宽泛域名 `bilibili.com` 必须排在直播 `bilibili`
+  (`live.bilibili.com`)之后。
 - **B 站登录**:`--login bilibili` 走扫码(qrcode/generate → 终端二维码 → poll 轮询 → cookie 落盘
   `~/.config/iina-live/bilibili_cookie`)。`bilibili._load_cookie()` 供取流用(env `BILI_COOKIE` 优先)。
   `qr.py` 是从零实现的 QR 编码器(byte/ECC-L/v1-10),改动务必用真实解码器(如 OpenCV)验证可扫,

@@ -98,6 +98,15 @@ url           直播间地址(如 https://live.bilibili.com/24678311),--mode ser
   2. 或设环境变量 `BILI_COOKIE`(浏览器里的 `SESSDATA`)。
 
   都没有则走免登录,最高约蓝光。
+- **B 站番剧(点播)**:也支持番剧/影视地址(番剧是**点播**,不是直播):
+
+  ```bash
+  uv run -m iina_live https://www.bilibili.com/bangumi/play/ep285395   # 或 ss28223
+  ```
+
+  点播没有断流问题,故自动走 `direct`(不启 serve 代理),取 fnval=1 的 **mp4 合并流**直链交给
+  播放器。大会员/付费正片用 `--login bilibili` 的 cookie 解锁;画质目前最高约 720P(1080P+ 需 DASH
+  分轨,暂未做)。
 
 ## 项目结构
 
@@ -114,6 +123,7 @@ iina_live/               # 主包
     douyin.py            # 抖音解析:ttwid cookie / 房间页 SSR 数据
     douyu.py             # 斗鱼解析:getEncryption + 纯 MD5 auth + getH5PlayV1
     bilibili.py          # B 站直播解析:room_init + getRoomPlayInfo(免签名)
+    bangumi.py           # B 站番剧(点播):pgc playurl → mp4 直链,走 direct
 tests/                   # 标准库 unittest,零依赖、不触网
 ```
 

@@ -159,6 +159,11 @@ def play_room(url, a):
     if a.mode == "serve-only":
         return _serve_only(a)   # 纯中转:忽略房间,不解析、不打开播放器
 
+    # 点播(如 B 站番剧)是完整文件,没有断流续播问题:serve/m3u 无意义,自动改用 direct
+    if sites.is_vod(url) and a.mode in ("serve", "m3u"):
+        print(f"[点播] {a.mode} 模式对点播无意义，改用 direct 直链打开。")
+        a.mode = "direct"
+
     info = sites.parse(url)
     headers = sites.play_headers(url)
     print(f"房间号 : {info['rid']}")
