@@ -1,6 +1,9 @@
 # iina-live 开发约定
 
-面向 IINA/mpv 的直播流解析器。后续开发遵循以下约定。
+面向 IINA/mpv 的**直播**流解析器 + **点播**扩展。两个包:
+- `iina_live` — 纯直播(虎牙/抖音/斗鱼/B站直播),`uv run -m iina_live`;
+- `iina_series` — 点播(B站番剧/影视),`uv run -m iina_series`,**复用** iina_live 的 common/播放/B站登录 cookie。
+iina_live 保持干净:不含任何点播代码。后续开发遵循以下约定。
 
 ## 环境与依赖
 
@@ -12,10 +15,13 @@
 ## 结构
 
 ```
-iina_live/           主包(cli 入口 / server 代理 / common 工具)
+iina_live/           直播主包(cli 入口 / server 代理 / common 工具)
   qr.py              纯标准库 QR 生成 + 终端渲染(B 站扫码登录用)
-  sites/             平台层:__init__.py 派发,每平台一个模块(huya/douyin/douyu/bilibili 直播 + bangumi 番剧点播)
-tests/               标准库 unittest
+  sites/             直播平台层:__init__.py 派发,每平台一个模块(huya/douyin/douyu/bilibili)
+iina_series/         点播扩展(番剧/影视),复用 iina_live.common 与 iina_live.sites.bilibili._load_cookie
+  cli.py             direct/print + 选集
+  sites/bilibili.py  B 站番剧:pgc playurl → DASH
+tests/               标准库 unittest(test_iina_live / test_iina_series)
 ```
 
 ## 新增平台
@@ -49,13 +55,12 @@ tests/               标准库 unittest
   这让一个常驻代理服务任意平台任意房间。`--mode serve-only` 起的裸代理 `ROOM=None`,裸连 `/live.flv`
   报 400,全靠请求带 `?room=`。改这套 query 契约时 cli/server 两侧要同步,`test_roundtrips` 守着闭环。
 - 平台接口随风控变化,某平台解析失败多为接口调整,先看对应 `sites/<平台>.py` 的 `parse()`。
-- **点播(VOD) vs 直播**:平台模块可声明 `VOD=True`(如 `bangumi`,B 站番剧),`sites.is_vod()` 据此让 cli
-  自动走 `direct`(点播是完整文件,serve 转流/断流续播无意义)。番剧走 pgc `playurl`(明文、无需 wbi),
-  fnval=4048 取 DASH(VIP 高清 1080P+/4K/HDR,音视频分轨:stream 带 `audio` 字段,direct 模式把音轨作
-  `--audio-file`/`mpv_audio-file` 一并交给播放器;`fnval=1` mp4 天花板仅 720P,只作回退)。派发上
-  `bangumi` 的宽泛域名 `bilibili.com` 必须排在直播 `bilibili`
-  (`live.bilibili.com`)之后。选集:`--episode N` 由 `sites.parse(url, episode=)` **仅对 VOD 平台**透传
-  (直播 `parse(url)` 签名不变);`ss` 地址按集号取、`ep` 地址精确到集。
+- **iina_series(点播)**:番剧是完整文件,没有断流问题,单独成包、不进 iina_live。走 pgc `playurl`
+  (明文、无需 wbi),`fnval=4048` 取 DASH(VIP 高清 1080P+/4K/HDR,音视频分轨:stream 带 `audio` 字段,
+  播放时音轨作 `--audio-file`/`mpv_audio-file`;`fnval=1` mp4 仅 720P,作回退)。选集 `--episode N`
+  优先按正片集号(ep.title)匹配、同集号取时长最长(避开 44s 看点),`latest` 取末集。它 import
+  `iina_live.common` 和 `iina_live.sites.bilibili._load_cookie`(B站登录直播/番剧共用);依赖方向单向
+  (iina_series → iina_live),别让 iina_live 反向依赖 iina_series。
 - **B 站登录**:`--login bilibili` 走扫码(qrcode/generate → 终端二维码 → poll 轮询 → cookie 落盘
   `~/.config/iina-live/bilibili_cookie`)。`bilibili._load_cookie()` 供取流用(env `BILI_COOKIE` 优先)。
   `qr.py` 是从零实现的 QR 编码器(byte/ECC-L/v1-10),改动务必用真实解码器(如 OpenCV)验证可扫,

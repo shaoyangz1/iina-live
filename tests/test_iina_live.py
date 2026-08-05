@@ -16,7 +16,7 @@ import unittest
 import urllib.parse
 
 from iina_live import common, server, sites, cli, qr
-from iina_live.sites import huya, douyin, douyu, bilibili, bangumi
+from iina_live.sites import huya, douyin, douyu, bilibili
 
 
 def _stream(quality, url="u0", backups=("u1", "u2")):
@@ -551,113 +551,6 @@ class TestBiliDispatch(unittest.TestCase):
     def test_play_headers_has_referer(self):
         h = sites.play_headers("https://live.bilibili.com/123456")
         self.assertEqual(h["Referer"], "https://live.bilibili.com/")
-
-
-class TestBangumi(unittest.TestCase):
-    def test_resolve_ep_and_ss(self):
-        self.assertEqual(bangumi.resolve_id("https://www.bilibili.com/bangumi/play/ep123456"), ("ep", 123456))
-        self.assertEqual(bangumi.resolve_id("https://www.bilibili.com/bangumi/play/ss28229"), ("ss", 28229))
-
-    def test_resolve_non_bangumi_raises(self):
-        with self.assertRaises(RuntimeError):
-            bangumi.resolve_id("https://www.bilibili.com/video/BV1xx")
-
-    def test_pick_episode_ep_exact(self):
-        season = {"episodes": [{"id": 1, "cid": 11}, {"id": 2, "cid": 22}]}
-        self.assertEqual(bangumi._pick_episode(season, "ep", 2)["cid"], 22)
-
-    def test_pick_episode_ss_first(self):
-        season = {"episodes": [{"id": 1, "cid": 11}, {"id": 2, "cid": 22}]}
-        self.assertEqual(bangumi._pick_episode(season, "ss", 28229)["cid"], 11)
-
-    def test_pick_episode_by_number(self):
-        season = {"episodes": [{"id": 1, "cid": 11}, {"id": 2, "cid": 22}, {"id": 3, "cid": 33}]}
-        self.assertEqual(bangumi._pick_episode(season, "ss", 0, episode=2)["cid"], 22)
-
-    def test_pick_episode_by_title_number(self):
-        # 列表位置≠正片集号时(混入重制版),按 ep.title 集号匹配优先
-        season = {"episodes": [
-            {"title": "1重制版", "cid": 1}, {"title": "1", "cid": 10},
-            {"title": "2", "cid": 20}, {"title": "3", "cid": 30}]}
-        # 要第 2 集 → 命中 title=="2"(cid 20),而非列表第 2 项(cid 10)
-        self.assertEqual(bangumi._pick_episode(season, "ss", 0, episode=2)["cid"], 20)
-
-    def test_pick_episode_prefers_full_over_pv(self):
-        # 同集号有 44s 看点 + 正片时,取时长最长(正片)
-        season = {"episodes": [
-            {"title": "185", "duration": 44000, "cid": 1},        # 看点/PV
-            {"title": "185", "duration": 1241000, "cid": 2}]}     # 正片
-        self.assertEqual(bangumi._pick_episode(season, "ss", 0, episode=185)["cid"], 2)
-
-    def test_pick_episode_title_miss_falls_back_to_index(self):
-        # title 非集号(电影/特别篇)时回退列表位置
-        season = {"episodes": [{"title": "预告", "cid": 1}, {"title": "正片", "cid": 2}]}
-        self.assertEqual(bangumi._pick_episode(season, "ss", 0, episode=2)["cid"], 2)
-
-    def test_pick_episode_number_overrides_ep_id(self):
-        # 显式 episode 优先于 ep 地址里的 ep_id
-        season = {"episodes": [{"id": 100, "cid": 11}, {"id": 200, "cid": 22}]}
-        self.assertEqual(bangumi._pick_episode(season, "ep", 100, episode=2)["cid"], 22)
-
-    def test_pick_episode_out_of_range(self):
-        season = {"episodes": [{"id": 1, "cid": 11}]}
-        self.assertEqual(bangumi._pick_episode(season, "ss", 0, episode=5), {})
-
-    def test_pick_episode_latest(self):
-        season = {"episodes": [{"id": 1, "cid": 11}, {"id": 2, "cid": 22}, {"id": 3, "cid": 33}]}
-        self.assertEqual(bangumi._pick_episode(season, "ss", 0, episode="latest")["cid"], 33)
-
-    def test_episode_arg_parsing(self):
-        self.assertEqual(cli._episode_arg("latest"), "latest")
-        self.assertEqual(cli._episode_arg("7"), 7)
-        import argparse
-        for bad in ("abc", "0", "-1"):
-            with self.assertRaises(argparse.ArgumentTypeError):
-                cli._episode_arg(bad)
-
-    def test_pick_episode_empty(self):
-        self.assertEqual(bangumi._pick_episode({"episodes": []}, "ss", 1), {})
-
-    def test_streams_from_play(self):
-        play = {"quality": 80, "durl": [{"url": "http://x/v.mp4", "backup_url": ["http://y/v.mp4"]}]}
-        s = bangumi._streams_from_play(play)
-        self.assertEqual(s["1080P"], {"quality": 80, "url": "http://x/v.mp4", "backups": ["http://y/v.mp4"]})
-
-    def test_streams_from_play_empty(self):
-        self.assertEqual(bangumi._streams_from_play({"durl": []}), {})
-
-    def test_streams_from_dash(self):
-        dash = {
-            "video": [
-                {"id": 120, "codecs": "hev1", "baseUrl": "http://v/4k_h265", "backupUrl": ["http://v2/h265"]},
-                {"id": 120, "codecs": "avc1", "baseUrl": "http://v/4k_h264", "backupUrl": ["http://v2/4k"]},
-                {"id": 80, "codecs": "avc1", "baseUrl": "http://v/1080", "backup_url": []},
-            ],
-            "audio": [
-                {"id": 30232, "bandwidth": 132000, "baseUrl": "http://a/mid"},
-                {"id": 30280, "bandwidth": 192000, "baseUrl": "http://a/hi"},
-            ],
-        }
-        s = bangumi._streams_from_dash(dash)
-        # 最高档 4K，同 qn 优先 H.264(avc1)，音轨取最高码率
-        self.assertEqual(s["4K"]["quality"], 120)
-        self.assertEqual(s["4K"]["url"], "http://v/4k_h264")
-        self.assertEqual(s["4K"]["audio"], "http://a/hi")
-        self.assertEqual(s["4K"]["backups"], ["http://v2/4k"])
-        self.assertEqual(s["1080P"]["url"], "http://v/1080")
-
-    def test_streams_from_dash_empty(self):
-        self.assertEqual(bangumi._streams_from_dash({"video": [], "audio": []}), {})
-
-    def test_dispatch_bangumi_vs_live(self):
-        # www.bilibili.com/bangumi → 番剧;live.bilibili.com → 直播(不被番剧抢)
-        self.assertIs(sites.get_site("https://www.bilibili.com/bangumi/play/ep1"), bangumi)
-        self.assertIs(sites.get_site("https://live.bilibili.com/123"), bilibili)
-
-    def test_is_vod(self):
-        self.assertTrue(sites.is_vod("https://www.bilibili.com/bangumi/play/ep1"))
-        self.assertFalse(sites.is_vod("https://live.bilibili.com/123"))
-        self.assertFalse(sites.is_vod("https://www.huya.com/lpl"))
 
 
 class TestUnsupportedPlatform(unittest.TestCase):

@@ -15,8 +15,9 @@
                       print       只解析打印各清晰度地址，不打开播放器
     --port P        serve 模式端口，默认 8787
     --player P      direct/m3u 模式播放器: iina(默认) / mpv
-    --episode N     点播选集(如 B 站番剧):第 N 集(1 起)或 latest(最新一集)
     --login bilibili 扫码登录(终端出二维码)，cookie 存本地供 B 站取流解锁原画/4K
+
+番剧/影视点播见另一个包:python -m iina_series <番剧地址>
 """
 import argparse
 import os
@@ -92,40 +93,25 @@ def _open_iina(url):
     subprocess.run(["open", url])
 
 
-def _open_iina_m3u(rid, title, url, headers=None, audio=None):
+def _open_iina_m3u(rid, title, url, headers=None):
     """给 IINA 一个含直链的本地 m3u,靠 #EXTINF 名显示标题(IINA 对网络直链 force-media-title
-    在标题栏不生效);direct 模式还需带 referer/UA(+DASH 音轨),serve 模式 headers 留空。"""
+    在标题栏不生效);direct 模式带 referer/UA,serve 模式 headers 留空(代理已带头)。"""
     d = os.path.join(tempfile.gettempdir(), "IINA-LIVE")
     os.makedirs(d, exist_ok=True)
     m3u = os.path.join(d, f"{rid}.m3u")
     with open(m3u, "w") as f:
         f.write(common.single_m3u(title, url))
-    _open_iina(common.iina_local_url(title, m3u, headers, audio))
+    _open_iina(common.iina_local_url(title, m3u, headers))
 
 
-def _open_mpv(flv, title, headers, audio=None):
+def _open_mpv(flv, title, headers):
     args = ["mpv", flv, f"--force-media-title={title}", "--ytdl=no",
             f"--stream-lavf-o={common.RECONNECT}"]
-    if audio:                                        # DASH 点播:独立音轨
-        args.append(f"--audio-file={audio}")
     if headers.get("Referer"):
         args.append(f"--referrer={headers['Referer']}")
     if headers.get("User-Agent"):
         args.append(f"--user-agent={headers['User-Agent']}")
     subprocess.Popen(args)
-
-
-def _episode_arg(s):
-    """--episode 取值:正整数(第几集,1 起)或 'latest'(最新一集)。"""
-    if s == "latest":
-        return "latest"
-    try:
-        n = int(s)
-    except ValueError:
-        raise argparse.ArgumentTypeError("需为正整数或 latest")
-    if n < 1:
-        raise argparse.ArgumentTypeError("需 >= 1")
-    return n
 
 
 def main():
@@ -141,8 +127,6 @@ def main():
     ap.add_argument("--player", default="iina", choices=["iina", "mpv"])
     ap.add_argument("--grace", type=int, default=180,
                     help="serve 模式:无连接空闲多少秒后自动退出，<=0 常驻，默认 180")
-    ap.add_argument("--episode", "--ep", type=_episode_arg, default=None, metavar="N|latest",
-                    help="点播选集(如 B 站番剧):第 N 集(1 起)或 latest(最新一集)，仅对 www.bilibili.com/bangumi 等点播有效")
     ap.add_argument("--login", choices=["bilibili"], default=None,
                     help="扫码登录(目前支持 bilibili):终端出二维码，登录后 cookie 存本地供取流解锁原画/4K")
     a = ap.parse_args()
@@ -188,20 +172,7 @@ def play_room(url, a):
     if a.mode == "serve-only":
         return _serve_only(a)   # 纯中转:忽略房间,不解析、不打开播放器
 
-    # 点播(如 B 站番剧)是完整文件,没有断流续播问题:serve/m3u 无意义,自动改用 direct
-    if sites.is_vod(url) and a.mode in ("serve", "m3u"):
-        print(f"[点播] {a.mode} 模式对点播无意义，改用 direct 直链打开。")
-        a.mode = "direct"
-
-    info = sites.parse(url, episode=a.episode)
-    total_eps = info.get("episodes")   # 番剧特有:总集数
-    if info.get("season_id"):          # 点播:打印整季 ss(给 ep 地址时即反查出 ss)
-        line = f"整季 : ss{info['season_id']}"
-        if total_eps and total_eps > 1:
-            cur = total_eps if a.episode == "latest" else (a.episode or 1)
-            tag = "最新" if a.episode == "latest" else ""
-            line += f"（共 {total_eps} 集，当前第 {cur} 集{tag}，--episode N|latest 选集）"
-        print(line)
+    info = sites.parse(url)
     headers = sites.play_headers(url)
     print(f"房间号 : {info['rid']}")
     print(f"主播   : {info['nick']}")
@@ -215,13 +186,7 @@ def play_room(url, a):
     if stream is None:
         print("该直播间未取到可播放的 flv 流(可能仅提供 HLS 或流结构异常)。")
         return 1
-    # 直播默认用主播名(简洁);点播(如番剧)用完整分集标题(含集数,更有意义)
-    if a.title:
-        title = a.title
-    elif sites.is_vod(url):
-        title = info.get("title") or info.get("nick")
-    else:
-        title = info.get("nick") or info.get("title")
+    title = a.title or info["nick"] or info["title"]   # 默认用房间名(主播名)
     urls = [stream["url"]] + stream["backups"]
     flv = urls[a.line % len(urls)]
     print(f"清晰度 : {name} (quality={stream['quality']}, 线路数={len(urls)})")
@@ -234,13 +199,11 @@ def play_room(url, a):
         return 0
 
     if a.mode == "direct":
-        audio = stream.get("audio")   # DASH 点播(如番剧高清)的独立音轨,直播为 None
         if a.player == "mpv":
-            _open_mpv(flv, title, headers, audio)
+            _open_mpv(flv, title, headers)
         else:
-            _open_iina_m3u(info["rid"], title, flv, headers, audio)  # 本地 m3u 让 IINA 显示标题
-        note = "，已配 DASH 音轨" if audio else ""
-        print(f"已用直链打开 ({a.player}){note}。注意:卡住无法自动恢复。")
+            _open_iina_m3u(info["rid"], title, flv, headers)  # 本地 m3u 让 IINA 显示标题
+        print(f"已用直链打开 ({a.player})。注意:卡住无法自动恢复。")
         return 0
 
     if a.mode == "m3u":

@@ -10,12 +10,10 @@
 """
 import urllib.parse
 
-from . import huya, douyin, douyu, bilibili, bangumi
+from . import huya, douyin, douyu, bilibili
 
-# 已支持的平台模块(按需追加)。
-# bangumi 的 DOMAINS 是宽泛的 "bilibili.com",必须排在 bilibili(直播,"live.bilibili.com")
-# 之后,这样 live.bilibili.com 先命中直播,其余 www.bilibili.com 才落到番剧。
-SITES = [huya, douyin, douyu, bilibili, bangumi]
+# 已支持的直播平台模块(按需追加)。番剧/影视点播见另一个包 iina_series。
+SITES = [huya, douyin, douyu, bilibili]
 
 
 def get_site(url: str):
@@ -26,12 +24,8 @@ def get_site(url: str):
     raise RuntimeError(f"不支持的平台: {url}")
 
 
-def parse(url: str, episode: int = None) -> dict:
-    site = get_site(url)
-    # episode 仅点播(VOD,如番剧)有意义;直播平台 parse(url) 签名不变,不透传。
-    if episode is not None and getattr(site, "VOD", False):
-        return site.parse(url, episode=episode)
-    return site.parse(url)
+def parse(url: str) -> dict:
+    return get_site(url).parse(url)
 
 
 def play_headers(url: str) -> dict:
@@ -42,11 +36,6 @@ def canonical(url: str) -> str:
     """规范化房间地址(如剥离分享链接的 tracking query)。平台可选实现 canonical(),默认原样返回。"""
     fn = getattr(get_site(url), "canonical", None)
     return fn(url) if fn else url
-
-
-def is_vod(url: str) -> bool:
-    """该地址是否点播(VOD,如 B 站番剧)。点播用 direct 打开,不启 serve 转流代理。"""
-    return bool(getattr(get_site(url), "VOD", False))
 
 
 def supported() -> list:

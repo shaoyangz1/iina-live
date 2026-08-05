@@ -98,39 +98,41 @@ url           直播间地址(如 https://live.bilibili.com/24678311),--mode ser
   2. 或设环境变量 `BILI_COOKIE`(浏览器里的 `SESSDATA`)。
 
   都没有则走免登录,最高约蓝光。
-- **B 站番剧(点播)**:也支持番剧/影视地址(番剧是**点播**,不是直播):
 
-  ```bash
-  uv run -m iina_live https://www.bilibili.com/bangumi/play/ss26801            # 整季地址,默认第 1 集
-  uv run -m iina_live https://www.bilibili.com/bangumi/play/ss26801 --episode 5      # 选第 5 集
-  uv run -m iina_live https://www.bilibili.com/bangumi/play/ss28747 --episode latest # 最新一集
-  uv run -m iina_live https://www.bilibili.com/bangumi/play/ep285395           # ep 地址精确到某集
-  ```
+> **番剧/影视点播**属于另一个包 [`iina_series`](#番剧影视点播iina_series),不在 iina_live(纯直播)里。
 
-  给 `ss`(整季)地址时用 `--episode N`(**正片集号**,优先按分集标题里的集号匹配,长番混入重制版/特别篇时
-  也能对上;匹配不到才按列表位置)或 `--episode latest`(最新一集)选集;`ep` 地址本身已精确到某集,但**同样支持
-  `--episode`**(内部按 ep 已取到整季分集),且解析时会打印出该内容的整季 `ss` 号(等于从 ep 反查 ss)。点播没有断流
-  问题,故自动走 `direct`(不启 serve 代理),取 **DASH 流**(音视频分轨,自动把音轨作 `--audio-file` 一并
-  交给播放器)。大会员正片用 `--login bilibili` 的 cookie 解锁,画质可达 **1080P高码率 / 4K / HDR**
-  (默认取最高,`--quality` 可指定档位如 `1080P`)。
+## 番剧/影视点播(iina_series)
+
+番剧是**点播**(完整文件、无断流问题),与直播两回事,单独放在 `iina_series` 包(复用 iina_live 的公共件与 B 站登录 cookie):
+
+```bash
+uv run -m iina_series https://www.bilibili.com/bangumi/play/ss28747              # 整季地址,默认首集
+uv run -m iina_series https://www.bilibili.com/bangumi/play/ss28747 --episode 185 # 选第 185 集(正片集号)
+uv run -m iina_series https://www.bilibili.com/bangumi/play/ss28747 --episode latest
+uv run -m iina_series https://www.bilibili.com/bangumi/play/ep285395             # ep 地址精确到某集
+```
+
+- `--episode N`:**正片集号**(优先按分集标题里的集号匹配,长番混入重制版/特别篇/看点时也能对上);`latest` 为最新一集;`ep` 地址也支持 `--episode`,并会打印整季 `ss` 号(从 ep 反查 ss)。
+- 取 **DASH 流**(音视频分轨,自动把音轨作 `--audio-file` 交给播放器),大会员正片用 iina_live 的 `--login bilibili` cookie 解锁,画质可达 **1080P高码率 / 4K / HDR**(默认最高,`--quality` 指定档位)。
+- 只有 direct(直接打开)与 `--print`(打印地址)两种;`--player iina|mpv`。
 
 ## 项目结构
 
 ```
-iina_live/               # 主包
+iina_live/               # 直播主包(纯直播)
   __main__.py            # 入口(uv run -m iina_live)
   cli.py                 # 命令行:参数解析、端口选择、启动播放器
   server.py              # 本地转流代理:跨断流自愈、FLV 时间戳改写
-  common.py              # 公共工具:HTTP(gzip/POST)、清晰度选择、iina/m3u 生成
+  common.py              # 公共工具:HTTP(gzip/POST)、清晰度选择、iina/m3u 生成(iina_series 也复用)
   qr.py                  # 纯标准库 QR 生成 + 终端渲染(B 站扫码登录用)
   sites/
-    __init__.py          # 平台派发层(按域名路由)
-    huya.py              # 虎牙解析:本地 wsSecret 签名 flv 地址
-    douyin.py            # 抖音解析:ttwid cookie / 房间页 SSR 数据
-    douyu.py             # 斗鱼解析:getEncryption + 纯 MD5 auth + getH5PlayV1
-    bilibili.py          # B 站直播解析:room_init + getRoomPlayInfo(免签名)
-    bangumi.py           # B 站番剧(点播):pgc playurl → DASH 高清(视频+音轨),走 direct
-tests/                   # 标准库 unittest,零依赖、不触网
+    __init__.py          # 直播平台派发层(按域名路由)
+    huya.py douyin.py douyu.py bilibili.py   # 四个直播平台解析
+iina_series/             # 点播扩展(番剧/影视),复用 iina_live 的公共件与 B 站登录 cookie
+  __main__.py            # 入口(uv run -m iina_series)
+  cli.py                 # 命令行:direct/print + 选集
+  sites/bilibili.py      # B 站番剧:pgc playurl → DASH 高清(视频轨 + 音轨)
+tests/                   # 标准库 unittest(test_iina_live / test_iina_series),零依赖、不触网
 ```
 
 新增平台见 [CLAUDE.md](CLAUDE.md)。
@@ -140,13 +142,11 @@ tests/                   # 标准库 unittest,零依赖、不触网
 纯标准库、不触网,直接跑:
 
 ```bash
-python3 -m unittest tests.test_iina_live
-# 或
-uv run -m unittest tests.test_iina_live
+python3 -m unittest tests.test_iina_live tests.test_iina_series
 ```
 
-覆盖清晰度选择、m3u 生成、虎牙签名(uid 移位 / wsSecret)、gzip 解压、serve 代理的按请求
-`room`/`quality` 解析,以及抖音/斗鱼/B 站解析纯函数与派发路由。
+覆盖清晰度选择、m3u、虎牙签名、gzip、serve 代理解析、各平台解析纯函数与派发,以及 iina_series
+的番剧解析/选集/DASH 提流。
 
 ## 免责声明
 
