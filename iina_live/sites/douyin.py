@@ -32,6 +32,13 @@ def resolve_web_rid(url: str) -> str:
     return urllib.parse.urlparse(url).path.strip("/").split("/")[-1]
 
 
+def canonical(url: str) -> str:
+    """规范化抖音房间地址:分享链接常带一串 tracking query
+    (enter_from_merge / action_type / from=web_code_link 等),只保留
+    https://live.douyin.com/<web_rid>,让 serve 复用地址与默认房间保持干净。"""
+    return ROOM_URL.format(web_rid=resolve_web_rid(url))
+
+
 def _ttwid() -> str:
     """GET 首页从 Set-Cookie 抓 ttwid(抖音 web 接口所需)。"""
     req = urllib.request.Request(REFERER, headers={"User-Agent": UA_DESKTOP})

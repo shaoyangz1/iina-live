@@ -8,13 +8,14 @@ serve 代理按路径解析房间,以及抖音/斗鱼/B 站三平台的解析纯
 
     python -m unittest tests.test_iina_live
 """
+import os
 import base64
 import hashlib
 import json as _json
 import unittest
 import urllib.parse
 
-from iina_live import common, server, sites, cli
+from iina_live import common, server, sites, cli, qr
 from iina_live.sites import huya, douyin, douyu, bilibili
 
 
@@ -334,6 +335,26 @@ class TestDouyinRoomFromHtml(unittest.TestCase):
         self.assertEqual(info["streams"]["原画"]["url"], "http://x/f.flv")
 
 
+class TestCanonical(unittest.TestCase):
+    def test_douyin_strips_tracking_query(self):
+        u = ("https://live.douyin.com/870887192950?enter_from_merge=link_share"
+             "&enter_method=copy_link_share&action_type=click&from=web_code_link")
+        self.assertEqual(sites.canonical(u), "https://live.douyin.com/870887192950")
+
+    def test_douyin_plain_url_unchanged(self):
+        u = "https://live.douyin.com/870887192950"
+        self.assertEqual(sites.canonical(u), u)
+
+    def test_default_platform_keeps_query(self):
+        # 斗鱼未实现 canonical → 原样(需保留 ?rid=)
+        u = "https://www.douyu.com/topic/x?rid=888"
+        self.assertEqual(sites.canonical(u), u)
+
+    def test_huya_default_unchanged(self):
+        u = "https://www.huya.com/lpl"
+        self.assertEqual(sites.canonical(u), u)
+
+
 class TestDouyinDispatch(unittest.TestCase):
     def test_get_site_routes_to_douyin(self):
         self.assertIs(sites.get_site("https://live.douyin.com/123456"), douyin)
@@ -525,6 +546,99 @@ class TestUnsupportedPlatform(unittest.TestCase):
     def test_supported_lists_all_domains(self):
         for d in ("huya.com", "live.douyin.com", "douyu.com", "live.bilibili.com"):
             self.assertIn(d, sites.supported())
+
+
+class TestQR(unittest.TestCase):
+    """QR 生成器纯函数(标准正确性已用 OpenCV 解码器在开发期验证,此处守放置逻辑不回归)。"""
+
+    def test_version_grows_with_length(self):
+        v_short, _ = qr.encode_codewords("hi")
+        v_long, _ = qr.encode_codewords("x" * 120)
+        self.assertLessEqual(v_short, v_long)
+        self.assertGreaterEqual(v_long, 6)
+
+    def test_matrix_size(self):
+        v, m = qr.make("https://live.bilibili.com/123456")
+        self.assertEqual(len(m), v * 4 + 17)
+        self.assertTrue(all(len(row) == len(m) for row in m))
+
+    def test_finder_corners_dark(self):
+        _, m = qr.make("hello")
+        size = len(m)
+        for r0, c0 in [(0, 0), (0, size - 7), (size - 7, 0)]:
+            self.assertEqual(m[r0 + 3][c0 + 3], 1)      # finder 中心黑
+            self.assertEqual(m[r0][c0], 1)              # 角黑
+
+    def test_placement_roundtrip(self):
+        # 按同一 fn/zigzag 逆读应还原码字流 → 放置逻辑自洽
+        v, cw = qr.encode_codewords("https://passport.bilibili.com/x/abc?k=" + "v" * 40)
+        m, fn = qr.build_matrix(v, cw)
+        size = len(m)
+        bits = ""
+        right = size - 1
+        while right > 0:
+            if right == 6:
+                right = 5
+            for vert in range(size):
+                for j in range(2):
+                    col = right - j
+                    up = ((right + 1) & 2) == 0
+                    row = (size - 1 - vert) if up else vert
+                    if not fn[row][col]:
+                        bits += str(m[row][col])
+            right -= 2
+        read = [int(bits[i:i + 8], 2) for i in range(0, len(cw) * 8, 8)]
+        self.assertEqual(read, cw)
+
+    def test_render_dimensions(self):
+        m = qr.make("hi")[1]
+        out = qr.terminal_qr("hi")
+        # 半块:每行含两行模块,行数 = ceil((size+2*quiet)/2)
+        expected_rows = (len(m) + 8 + 1) // 2
+        self.assertEqual(len(out.splitlines()), expected_rows)
+        self.assertIn("█", out)
+
+    def test_too_long_raises(self):
+        with self.assertRaises(ValueError):
+            qr.encode_codewords("x" * 300)
+
+
+class TestBiliCookie(unittest.TestCase):
+    def setUp(self):
+        self._env = dict(os.environ)
+
+    def tearDown(self):
+        os.environ.clear()
+        os.environ.update(self._env)
+
+    def test_env_full_cookie_used_verbatim(self):
+        os.environ["BILI_COOKIE"] = "SESSDATA=abc; bili_jct=xyz"
+        self.assertEqual(bilibili._load_cookie(), "SESSDATA=abc; bili_jct=xyz")
+
+    def test_env_bare_sessdata_wrapped(self):
+        os.environ["BILI_COOKIE"] = "rawvalue"
+        self.assertEqual(bilibili._load_cookie(), "SESSDATA=rawvalue")
+
+    def test_cookies_from_setcookie_filters_wanted(self):
+        setc = ["SESSDATA=aa; Path=/; HttpOnly", "bili_jct=bb; Path=/",
+                "DedeUserID=123; Path=/", "buvid3=zzz; Path=/"]
+        got = bilibili._cookies_from_setcookie(setc)
+        self.assertIn("SESSDATA=aa", got)
+        self.assertIn("bili_jct=bb", got)
+        self.assertIn("DedeUserID=123", got)
+        self.assertNotIn("buvid3", got)          # 非关键 cookie 不带
+
+    def test_cookies_from_url(self):
+        u = "https://passport.biligame.com/x/crossDomain?DedeUserID=1&SESSDATA=s%2Fx&bili_jct=j&gourl=x"
+        got = bilibili._cookies_from_url(u)
+        self.assertIn("SESSDATA=s/x", got)       # parse_qs 已解码
+        self.assertIn("bili_jct=j", got)
+        self.assertNotIn("gourl", got)
+
+    def test_cookie_path_respects_xdg(self):
+        os.environ["XDG_CONFIG_HOME"] = "/tmp/xdgcfg"
+        p = bilibili._cookie_path()
+        self.assertEqual(str(p), "/tmp/xdgcfg/iina-live/bilibili_cookie")
 
 
 if __name__ == "__main__":

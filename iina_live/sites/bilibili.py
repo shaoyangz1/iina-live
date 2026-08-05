@@ -5,12 +5,17 @@
 room_init 短号转真房号 → getRoomPlayInfo 拿多档多线路 flv。
 
 直播取流无需 wbi 签名(与点播 x/player/wbi/playurl 不同,streamlink/yt-dlp/ihmily
-现行做法均明文 query),纯 urllib+json 即可。原画/4K 需登录:设环境变量
-BILI_COOKIE(浏览器里的 SESSDATA)自动解锁,不设则免登录、最高约蓝光。
+现行做法均明文 query),纯 urllib+json 即可。原画/4K 需登录后取流:
+- 扫码登录: `iina_live --login bilibili`,cookie 存到本地(见 _cookie_path);或
+- 环境变量 BILI_COOKIE(浏览器里的 SESSDATA);
+两者都没有则免登录、最高约蓝光。
 """
 import os
 import json
+import time
+import pathlib
 import urllib.parse
+import urllib.request
 
 from ..common import http_get
 
@@ -95,10 +100,115 @@ def parse(url: str) -> dict:
     })
     data = _get_json(
         f"https://api.live.bilibili.com/xlive/web-room/v2/index/getRoomPlayInfo?{q}",
-        os.environ.get("BILI_COOKIE"),
+        _load_cookie(),
     )["data"]
     if data.get("live_status") == 0:  # room_init 到出流间隙下播
         info["living"] = False
         return info
     info["streams"] = _streams_from_playinfo(data)
     return info
+
+
+# ---------------- 登录态 cookie ----------------
+# 取流用到的关键 cookie(SESSDATA 解锁清晰度,其余登录态一并带上)
+_WANT = ("SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5")
+
+
+def _cookie_path() -> pathlib.Path:
+    base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
+    return pathlib.Path(base) / "iina-live" / "bilibili_cookie"
+
+
+def _load_cookie():
+    """取登录 cookie:环境变量 BILI_COOKIE 优先(裸 SESSDATA 值会自动包成 SESSDATA=..),
+    否则读扫码登录落盘的文件;都没有返回 None(走免登录)。"""
+    env = os.environ.get("BILI_COOKIE")
+    if env:
+        return env if "=" in env else f"SESSDATA={env}"
+    p = _cookie_path()
+    if p.exists():
+        return p.read_text(encoding="utf-8").strip() or None
+    return None
+
+
+def _save_cookie(cookie: str) -> pathlib.Path:
+    p = _cookie_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(cookie, encoding="utf-8")
+    try:
+        os.chmod(p, 0o600)   # cookie 含登录态,仅本人可读
+    except OSError:
+        pass
+    return p
+
+
+def _cookies_from_setcookie(set_cookies) -> str:
+    """从响应的 Set-Cookie 头列表拼出需要的 cookie 串(纯函数,便于测试)。"""
+    got = {}
+    for c in set_cookies:
+        kv = c.split(";", 1)[0].strip()
+        if "=" in kv:
+            k, v = kv.split("=", 1)
+            if k in _WANT:
+                got[k] = v
+    return "; ".join(f"{k}={got[k]}" for k in _WANT if k in got)
+
+
+def _cookies_from_url(u: str) -> str:
+    """从 poll 成功返回的跨域 url(query 里带 SESSDATA 等)拼出 cookie 串(纯函数)。"""
+    q = urllib.parse.parse_qs(urllib.parse.urlparse(u).query)
+    return "; ".join(f"{k}={q[k][0]}" for k in _WANT if k in q)
+
+
+_QR_GENERATE = "https://passport.bilibili.com/x/passport-login/web/qrcode/generate"
+_QR_POLL = "https://passport.bilibili.com/x/passport-login/web/qrcode/poll?qrcode_key="
+
+
+def _poll(qrcode_key: str):
+    """轮询一次扫码状态,返回 (data.code, cookie串)。cookie 优先取跨域 url,回退 Set-Cookie。"""
+    req = urllib.request.Request(_QR_POLL + qrcode_key, headers=_API_HEADERS)
+    with urllib.request.urlopen(req, timeout=15) as r:
+        set_cookies = r.headers.get_all("Set-Cookie") or []
+        body = json.loads(r.read())
+    d = body.get("data") or {}
+    cookie = _cookies_from_url(d.get("url") or "") or _cookies_from_setcookie(set_cookies)
+    return d.get("code"), cookie
+
+
+def login() -> int:
+    """B 站扫码登录:拉二维码 → 终端打印 → 轮询确认 → cookie 落盘。返回退出码。"""
+    from .. import qr
+
+    gen = _get_json(_QR_GENERATE)
+    if gen.get("code") != 0:
+        print(f"获取登录二维码失败:{gen.get('message') or gen}")
+        return 1
+    key, url = gen["data"]["qrcode_key"], gen["data"]["url"]
+    print(qr.terminal_qr(url))
+    print("请用「哔哩哔哩」手机 App 扫描上面的二维码并确认登录。(Ctrl+C 取消)\n")
+
+    deadline = time.time() + 180
+    last = None
+    while time.time() < deadline:
+        try:
+            code, cookie = _poll(key)
+        except Exception as e:
+            print(f"轮询出错:{e!r}")
+            return 1
+        if code == 0:
+            if not cookie:
+                print("登录成功但未取到 cookie(接口返回结构可能有变)。")
+                return 1
+            p = _save_cookie(cookie)
+            print(f"登录成功,cookie 已保存到 {p}")
+            return 0
+        if code == 86038:
+            print("二维码已失效,请重新运行登录。")
+            return 1
+        msg = {86101: "等待扫码…", 86090: "已扫码,请在手机上确认…"}.get(code, f"状态 {code}")
+        if msg != last:
+            print(msg, flush=True)
+            last = msg
+        time.sleep(2)
+    print("登录超时(180s),请重试。")
+    return 1

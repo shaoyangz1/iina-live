@@ -13,6 +13,7 @@
 
 ```
 iina_live/           主包(cli 入口 / server 代理 / common 工具)
+  qr.py              纯标准库 QR 生成 + 终端渲染(B 站扫码登录用)
   sites/             平台层:__init__.py 派发,每平台一个模块(huya/douyin/douyu/bilibili)
 tests/               标准库 unittest
 ```
@@ -48,6 +49,10 @@ tests/               标准库 unittest
   这让一个常驻代理服务任意平台任意房间。`--mode serve-only` 起的裸代理 `ROOM=None`,裸连 `/live.flv`
   报 400,全靠请求带 `?room=`。改这套 query 契约时 cli/server 两侧要同步,`test_roundtrips` 守着闭环。
 - 平台接口随风控变化,某平台解析失败多为接口调整,先看对应 `sites/<平台>.py` 的 `parse()`。
+- **B 站登录**:`--login bilibili` 走扫码(qrcode/generate → 终端二维码 → poll 轮询 → cookie 落盘
+  `~/.config/iina-live/bilibili_cookie`)。`bilibili._load_cookie()` 供取流用(env `BILI_COOKIE` 优先)。
+  `qr.py` 是从零实现的 QR 编码器(byte/ECC-L/v1-10),改动务必用真实解码器(如 OpenCV)验证可扫,
+  别只肉眼看——格式信息行列、alignment 跳过条件都踩过坑。
 
 ## 风格
 

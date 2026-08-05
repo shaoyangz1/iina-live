@@ -32,6 +32,12 @@ def play_headers(url: str) -> dict:
     return getattr(get_site(url), "PLAY_HEADERS", {})
 
 
+def canonical(url: str) -> str:
+    """规范化房间地址(如剥离分享链接的 tracking query)。平台可选实现 canonical(),默认原样返回。"""
+    fn = getattr(get_site(url), "canonical", None)
+    return fn(url) if fn else url
+
+
 def supported() -> list:
     """所有已支持的域名,用于提示。"""
     return [d for mod in SITES for d in mod.DOMAINS]

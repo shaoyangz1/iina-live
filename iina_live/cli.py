@@ -15,6 +15,7 @@
                       print       只解析打印各清晰度地址，不打开播放器
     --port P        serve 模式端口，默认 8787
     --player P      direct/m3u 模式播放器: iina(默认) / mpv
+    --login bilibili 扫码登录(终端出二维码)，cookie 存本地供 B 站取流解锁原画/4K
 """
 import argparse
 import os
@@ -113,9 +114,16 @@ def main():
     ap.add_argument("--player", default="iina", choices=["iina", "mpv"])
     ap.add_argument("--grace", type=int, default=180,
                     help="serve 模式:无连接空闲多少秒后自动退出，<=0 常驻，默认 180")
+    ap.add_argument("--login", choices=["bilibili"], default=None,
+                    help="扫码登录(目前支持 bilibili):终端出二维码，登录后 cookie 存本地供取流解锁原画/4K")
     a = ap.parse_args()
+    if a.login:
+        from .sites import bilibili
+        return bilibili.login()          # 扫码登录，无需房间地址
     if a.url is None and a.mode != "serve-only":
         ap.error("需要房间地址(仅 --mode serve-only 可省)")
+    if a.url:
+        a.url = sites.canonical(a.url)   # 剥离分享链接的 tracking query(如抖音)
     return play_room(a.url, a)
 
 

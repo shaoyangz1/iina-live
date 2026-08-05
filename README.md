@@ -92,8 +92,12 @@ url           直播间地址(如 https://live.bilibili.com/24678311),--mode ser
   直连平台 CDN 时,mpv 用 `--referrer`/`--user-agent`,IINA 用 `iina://` 的 `mpv_referrer`/`mpv_user-agent`。
 - **端口探测并发**:某些启用了 TUN/过滤驱动的代理软件会让"连接被拒绝"延迟 ~2s,serve 模式并发探测端口,
   避免首次启动被拖慢;发现本项目已在跑的代理(靠 `/__ping__` 识别)则直接复用、不重复起。
-- **哔哩哔哩原画**:B 站原画/4K 需登录后取流,设环境变量 `BILI_COOKIE`(浏览器里的 `SESSDATA`)即可
-  解锁;不设则走免登录,最高约蓝光。
+- **哔哩哔哩原画/登录**:B 站原画/4K 需登录后取流。两种方式:
+  1. **扫码登录**:`uv run -m iina_live --login bilibili` —— 终端打印二维码(纯标准库自绘),用「哔哩哔哩」
+     手机 App 扫码确认,cookie 自动存到 `~/.config/iina-live/bilibili_cookie`(仅本人可读),之后取流自动带上;
+  2. 或设环境变量 `BILI_COOKIE`(浏览器里的 `SESSDATA`)。
+
+  都没有则走免登录,最高约蓝光。
 
 ## 项目结构
 
@@ -103,6 +107,7 @@ iina_live/               # 主包
   cli.py                 # 命令行:参数解析、端口选择、启动播放器
   server.py              # 本地转流代理:跨断流自愈、FLV 时间戳改写
   common.py              # 公共工具:HTTP(gzip/POST)、清晰度选择、iina/m3u 生成
+  qr.py                  # 纯标准库 QR 生成 + 终端渲染(B 站扫码登录用)
   sites/
     __init__.py          # 平台派发层(按域名路由)
     huya.py              # 虎牙解析:本地 wsSecret 签名 flv 地址
