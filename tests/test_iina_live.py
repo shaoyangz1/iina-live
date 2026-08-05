@@ -568,6 +568,18 @@ class TestBangumi(unittest.TestCase):
         season = {"episodes": [{"id": 1, "cid": 11}]}
         self.assertEqual(bangumi._pick_episode(season, "ss", 0, episode=5), {})
 
+    def test_pick_episode_latest(self):
+        season = {"episodes": [{"id": 1, "cid": 11}, {"id": 2, "cid": 22}, {"id": 3, "cid": 33}]}
+        self.assertEqual(bangumi._pick_episode(season, "ss", 0, episode="latest")["cid"], 33)
+
+    def test_episode_arg_parsing(self):
+        self.assertEqual(cli._episode_arg("latest"), "latest")
+        self.assertEqual(cli._episode_arg("7"), 7)
+        import argparse
+        for bad in ("abc", "0", "-1"):
+            with self.assertRaises(argparse.ArgumentTypeError):
+                cli._episode_arg(bad)
+
     def test_pick_episode_empty(self):
         self.assertEqual(bangumi._pick_episode({"episodes": []}, "ss", 1), {})
 

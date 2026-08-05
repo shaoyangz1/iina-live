@@ -15,7 +15,7 @@
                       print       只解析打印各清晰度地址，不打开播放器
     --port P        serve 模式端口，默认 8787
     --player P      direct/m3u 模式播放器: iina(默认) / mpv
-    --episode N     点播选集(如 B 站番剧):第 N 集(1 起)
+    --episode N     点播选集(如 B 站番剧):第 N 集(1 起)或 latest(最新一集)
     --login bilibili 扫码登录(终端出二维码)，cookie 存本地供 B 站取流解锁原画/4K
 """
 import argparse
@@ -102,6 +102,19 @@ def _open_mpv(flv, title, headers):
     subprocess.Popen(args)
 
 
+def _episode_arg(s):
+    """--episode 取值:正整数(第几集,1 起)或 'latest'(最新一集)。"""
+    if s == "latest":
+        return "latest"
+    try:
+        n = int(s)
+    except ValueError:
+        raise argparse.ArgumentTypeError("需为正整数或 latest")
+    if n < 1:
+        raise argparse.ArgumentTypeError("需 >= 1")
+    return n
+
+
 def main():
     ap = argparse.ArgumentParser(prog="iina-live")
     ap.add_argument("url", nargs="?", default=None,
@@ -115,8 +128,8 @@ def main():
     ap.add_argument("--player", default="iina", choices=["iina", "mpv"])
     ap.add_argument("--grace", type=int, default=180,
                     help="serve 模式:无连接空闲多少秒后自动退出，<=0 常驻，默认 180")
-    ap.add_argument("--episode", "--ep", type=int, default=None, metavar="N",
-                    help="点播选集(如 B 站番剧):第 N 集(1 起)，仅对 www.bilibili.com/bangumi 等点播有效")
+    ap.add_argument("--episode", "--ep", type=_episode_arg, default=None, metavar="N|latest",
+                    help="点播选集(如 B 站番剧):第 N 集(1 起)或 latest(最新一集)，仅对 www.bilibili.com/bangumi 等点播有效")
     ap.add_argument("--login", choices=["bilibili"], default=None,
                     help="扫码登录(目前支持 bilibili):终端出二维码，登录后 cookie 存本地供取流解锁原画/4K")
     a = ap.parse_args()
@@ -172,7 +185,9 @@ def play_room(url, a):
     if info.get("season_id"):          # 点播:打印整季 ss(给 ep 地址时即反查出 ss)
         line = f"整季 : ss{info['season_id']}"
         if total_eps and total_eps > 1:
-            line += f"（共 {total_eps} 集，当前第 {a.episode or 1} 集，--episode N 选集）"
+            cur = total_eps if a.episode == "latest" else (a.episode or 1)
+            tag = "最新" if a.episode == "latest" else ""
+            line += f"（共 {total_eps} 集，当前第 {cur} 集{tag}，--episode N|latest 选集）"
         print(line)
     headers = sites.play_headers(url)
     print(f"房间号 : {info['rid']}")
