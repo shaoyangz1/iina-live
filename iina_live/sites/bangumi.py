@@ -91,7 +91,8 @@ def parse(url: str, episode: int = None) -> dict:
         "title": None,
         "living": bool(ep),
         "streams": {},
-        "episodes": len(eps),         # 总集数(番剧特有),cli 用来提示选集
+        "episodes": len(eps),                       # 总集数(番剧特有),cli 用来提示选集
+        "season_id": season.get("season_id"),       # 整季 ss 号(给 ep 地址时可反查出 ss)
     }
     if not ep:
         return info

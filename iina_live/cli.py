@@ -169,8 +169,11 @@ def play_room(url, a):
 
     info = sites.parse(url, episode=a.episode)
     total_eps = info.get("episodes")   # 番剧特有:总集数
-    if total_eps and total_eps > 1:
-        print(f"共 {total_eps} 集，当前第 {a.episode or 1} 集(用 --episode N 选集)。")
+    if info.get("season_id"):          # 点播:打印整季 ss(给 ep 地址时即反查出 ss)
+        line = f"整季 : ss{info['season_id']}"
+        if total_eps and total_eps > 1:
+            line += f"（共 {total_eps} 集，当前第 {a.episode or 1} 集，--episode N 选集）"
+        print(line)
     headers = sites.play_headers(url)
     print(f"房间号 : {info['rid']}")
     print(f"主播   : {info['nick']}")
