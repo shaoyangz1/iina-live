@@ -15,6 +15,7 @@
                       print       只解析打印各清晰度地址，不打开播放器
     --port P        serve 模式端口，默认 8787
     --player P      direct/m3u 模式播放器: iina(默认) / mpv
+    --episode N     点播选集(如 B 站番剧):第 N 集(1 起)
     --login bilibili 扫码登录(终端出二维码)，cookie 存本地供 B 站取流解锁原画/4K
 """
 import argparse
@@ -114,6 +115,8 @@ def main():
     ap.add_argument("--player", default="iina", choices=["iina", "mpv"])
     ap.add_argument("--grace", type=int, default=180,
                     help="serve 模式:无连接空闲多少秒后自动退出，<=0 常驻，默认 180")
+    ap.add_argument("--episode", "--ep", type=int, default=None, metavar="N",
+                    help="点播选集(如 B 站番剧):第 N 集(1 起)，仅对 www.bilibili.com/bangumi 等点播有效")
     ap.add_argument("--login", choices=["bilibili"], default=None,
                     help="扫码登录(目前支持 bilibili):终端出二维码，登录后 cookie 存本地供取流解锁原画/4K")
     a = ap.parse_args()
@@ -164,7 +167,10 @@ def play_room(url, a):
         print(f"[点播] {a.mode} 模式对点播无意义，改用 direct 直链打开。")
         a.mode = "direct"
 
-    info = sites.parse(url)
+    info = sites.parse(url, episode=a.episode)
+    total_eps = info.get("episodes")   # 番剧特有:总集数
+    if total_eps and total_eps > 1:
+        print(f"共 {total_eps} 集，当前第 {a.episode or 1} 集(用 --episode N 选集)。")
     headers = sites.play_headers(url)
     print(f"房间号 : {info['rid']}")
     print(f"主播   : {info['nick']}")

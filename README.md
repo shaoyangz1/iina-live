@@ -101,12 +101,14 @@ url           直播间地址(如 https://live.bilibili.com/24678311),--mode ser
 - **B 站番剧(点播)**:也支持番剧/影视地址(番剧是**点播**,不是直播):
 
   ```bash
-  uv run -m iina_live https://www.bilibili.com/bangumi/play/ep285395   # 或 ss28223
+  uv run -m iina_live https://www.bilibili.com/bangumi/play/ss26801            # 整季地址,默认第 1 集
+  uv run -m iina_live https://www.bilibili.com/bangumi/play/ss26801 --episode 5 # 选第 5 集
+  uv run -m iina_live https://www.bilibili.com/bangumi/play/ep285395           # ep 地址精确到某集
   ```
 
-  点播没有断流问题,故自动走 `direct`(不启 serve 代理),取 fnval=1 的 **mp4 合并流**直链交给
-  播放器。大会员/付费正片用 `--login bilibili` 的 cookie 解锁;画质目前最高约 720P(1080P+ 需 DASH
-  分轨,暂未做)。
+  给 `ss`(整季)地址时用 `--episode N`(第几集,1 起)选集;`ep` 地址本身已精确到某集。点播没有断流
+  问题,故自动走 `direct`(不启 serve 代理),取 fnval=1 的 **mp4 合并流**直链交给播放器。大会员/付费
+  正片用 `--login bilibili` 的 cookie 解锁;画质通常 720P–1080P(更高清的 DASH 分轨暂未做)。
 
 ## 项目结构
 

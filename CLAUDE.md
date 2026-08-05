@@ -52,7 +52,8 @@ tests/               标准库 unittest
 - **点播(VOD) vs 直播**:平台模块可声明 `VOD=True`(如 `bangumi`,B 站番剧),`sites.is_vod()` 据此让 cli
   自动走 `direct`(点播是完整文件,serve 转流/断流续播无意义)。番剧走 pgc `playurl`(明文、无需 wbi),
   fnval=1 取 mp4 合并流单直链;派发上 `bangumi` 的宽泛域名 `bilibili.com` 必须排在直播 `bilibili`
-  (`live.bilibili.com`)之后。
+  (`live.bilibili.com`)之后。选集:`--episode N` 由 `sites.parse(url, episode=)` **仅对 VOD 平台**透传
+  (直播 `parse(url)` 签名不变);`ss` 地址按集号取、`ep` 地址精确到集。
 - **B 站登录**:`--login bilibili` 走扫码(qrcode/generate → 终端二维码 → poll 轮询 → cookie 落盘
   `~/.config/iina-live/bilibili_cookie`)。`bilibili._load_cookie()` 供取流用(env `BILI_COOKIE` 优先)。
   `qr.py` 是从零实现的 QR 编码器(byte/ECC-L/v1-10),改动务必用真实解码器(如 OpenCV)验证可扫,

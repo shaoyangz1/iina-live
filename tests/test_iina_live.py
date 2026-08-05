@@ -555,6 +555,19 @@ class TestBangumi(unittest.TestCase):
         season = {"episodes": [{"id": 1, "cid": 11}, {"id": 2, "cid": 22}]}
         self.assertEqual(bangumi._pick_episode(season, "ss", 28229)["cid"], 11)
 
+    def test_pick_episode_by_number(self):
+        season = {"episodes": [{"id": 1, "cid": 11}, {"id": 2, "cid": 22}, {"id": 3, "cid": 33}]}
+        self.assertEqual(bangumi._pick_episode(season, "ss", 0, episode=2)["cid"], 22)
+
+    def test_pick_episode_number_overrides_ep_id(self):
+        # 显式 episode 优先于 ep 地址里的 ep_id
+        season = {"episodes": [{"id": 100, "cid": 11}, {"id": 200, "cid": 22}]}
+        self.assertEqual(bangumi._pick_episode(season, "ep", 100, episode=2)["cid"], 22)
+
+    def test_pick_episode_out_of_range(self):
+        season = {"episodes": [{"id": 1, "cid": 11}]}
+        self.assertEqual(bangumi._pick_episode(season, "ss", 0, episode=5), {})
+
     def test_pick_episode_empty(self):
         self.assertEqual(bangumi._pick_episode({"episodes": []}, "ss", 1), {})
 

@@ -26,8 +26,12 @@ def get_site(url: str):
     raise RuntimeError(f"不支持的平台: {url}")
 
 
-def parse(url: str) -> dict:
-    return get_site(url).parse(url)
+def parse(url: str, episode: int = None) -> dict:
+    site = get_site(url)
+    # episode 仅点播(VOD,如番剧)有意义;直播平台 parse(url) 签名不变,不透传。
+    if episode is not None and getattr(site, "VOD", False):
+        return site.parse(url, episode=episode)
+    return site.parse(url)
 
 
 def play_headers(url: str) -> dict:

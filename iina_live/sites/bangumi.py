@@ -46,11 +46,15 @@ def resolve_id(url: str):
     return m.group(1), int(m.group(2))
 
 
-def _pick_episode(season: dict, kind: str, num: int) -> dict:
-    """从 season 的分集列表挑目标集:ep 精确匹配 ep_id,ss 取第一集(正片首集)。纯函数。"""
+def _pick_episode(season: dict, kind: str, num: int, episode: int = None) -> dict:
+    """从 season 的分集列表挑目标集(纯函数):
+    - episode 指定(1 起)→ 取第 episode 集(超范围返回 {});
+    - 否则 ep 地址精确匹配 ep_id,ss 地址取第一集(正片首集)。"""
     eps = season.get("episodes") or []
     if not eps:
         return {}
+    if episode is not None:
+        return eps[episode - 1] if 1 <= episode <= len(eps) else {}
     if kind == "ep":
         return next((e for e in eps if e.get("id") == num), eps[0])
     return eps[0]
@@ -71,18 +75,23 @@ def _streams_from_play(play: dict, qn_fallback: int = 0) -> dict:
     return {name: {"quality": qn, "url": first["url"], "backups": backups}}
 
 
-def parse(url: str) -> dict:
-    """解析番剧,返回房间式信息 + 单档 mp4 直链(套 direct 模式)。"""
+def parse(url: str, episode: int = None) -> dict:
+    """解析番剧,返回房间式信息 + 单档 mp4 直链(套 direct 模式)。
+
+    episode(1 起)显式选集;不给则按 ep 地址精确/ss 首集。info 额外带 episodes(总集数),
+    供 cli 提示选集。"""
     kind, num = resolve_id(url)
     key = "ep_id" if kind == "ep" else "season_id"
     season = _get_json(f"https://api.bilibili.com/pgc/view/web/season?{key}={num}")["result"]
-    ep = _pick_episode(season, kind, num)
+    eps = season.get("episodes") or []
+    ep = _pick_episode(season, kind, num, episode)
     info = {
         "rid": f"{kind}{num}",
         "nick": season.get("season_title") or season.get("title"),
         "title": None,
         "living": bool(ep),
         "streams": {},
+        "episodes": len(eps),         # 总集数(番剧特有),cli 用来提示选集
     }
     if not ep:
         return info
