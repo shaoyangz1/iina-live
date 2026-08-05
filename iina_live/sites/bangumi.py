@@ -58,9 +58,10 @@ def _pick_episode(season: dict, kind: str, num: int, episode=None) -> dict:
     if episode == "latest":
         return eps[-1]
     if episode is not None:
-        hit = next((e for e in eps if str(e.get("title", "")).strip() == str(episode)), None)
-        if hit:
-            return hit
+        # 同一集号常有多条(正片 + 44s「看点/PV」),取时长最长的那条=正片,避免误播短片段
+        hits = [e for e in eps if str(e.get("title", "")).strip() == str(episode)]
+        if hits:
+            return max(hits, key=lambda e: e.get("duration", 0) or 0)
         return eps[episode - 1] if 1 <= episode <= len(eps) else {}
     if kind == "ep":
         return next((e for e in eps if e.get("id") == num), eps[0])

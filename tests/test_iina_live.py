@@ -567,6 +567,13 @@ class TestBangumi(unittest.TestCase):
         # 要第 2 集 → 命中 title=="2"(cid 20),而非列表第 2 项(cid 10)
         self.assertEqual(bangumi._pick_episode(season, "ss", 0, episode=2)["cid"], 20)
 
+    def test_pick_episode_prefers_full_over_pv(self):
+        # 同集号有 44s 看点 + 正片时,取时长最长(正片)
+        season = {"episodes": [
+            {"title": "185", "duration": 44000, "cid": 1},        # 看点/PV
+            {"title": "185", "duration": 1241000, "cid": 2}]}     # 正片
+        self.assertEqual(bangumi._pick_episode(season, "ss", 0, episode=185)["cid"], 2)
+
     def test_pick_episode_title_miss_falls_back_to_index(self):
         # title 非集号(电影/特别篇)时回退列表位置
         season = {"episodes": [{"title": "预告", "cid": 1}, {"title": "正片", "cid": 2}]}
