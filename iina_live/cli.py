@@ -215,7 +215,13 @@ def play_room(url, a):
     if stream is None:
         print("该直播间未取到可播放的 flv 流(可能仅提供 HLS 或流结构异常)。")
         return 1
-    title = a.title or info["nick"] or info["title"]   # 默认用房间名(主播名)
+    # 直播默认用主播名(简洁);点播(如番剧)用完整分集标题(含集数,更有意义)
+    if a.title:
+        title = a.title
+    elif sites.is_vod(url):
+        title = info.get("title") or info.get("nick")
+    else:
+        title = info.get("nick") or info.get("title")
     urls = [stream["url"]] + stream["backups"]
     flv = urls[a.line % len(urls)]
     print(f"清晰度 : {name} (quality={stream['quality']}, 线路数={len(urls)})")
