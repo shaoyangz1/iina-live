@@ -695,6 +695,21 @@ class TestBiliCookie(unittest.TestCase):
             with mock.patch.object(bilibili, "_cookie_path", return_value=project):
                 self.assertIsNone(bilibili._load_cookie())
 
+    def test_print_login_info_shows_user_without_cookie_path(self):
+        with (
+            mock.patch.object(bilibili, "_get_json", return_value={
+                "data": {"isLogin": True, "uname": "测试用户", "vipType": 1},
+            }),
+            mock.patch.object(bilibili, "_cookie_expiry", return_value=None),
+            mock.patch("builtins.print") as printer,
+        ):
+            self.assertTrue(bilibili._print_login_info("SESSDATA=secret"))
+
+        output = "\n".join(str(call.args[0]) for call in printer.call_args_list)
+        self.assertIn("已登录 : 测试用户", output)
+        self.assertIn("会员   : 大会员", output)
+        self.assertNotIn(".cookie/bilibili", output)
+
     def test_cookie_expiry_parsed(self):
         # SESSDATA 是 URL 编码的「创建戳,过期戳,签名」,取第二段
         sess = urllib.parse.quote("abc123,1750000000,def45*31")

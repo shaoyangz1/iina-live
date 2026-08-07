@@ -212,8 +212,9 @@ def login() -> int:
             if not cookie:
                 print("登录成功但未取到 cookie(接口返回结构可能有变)。")
                 return 1
-            p = _save_cookie(cookie)
-            print(f"登录成功,cookie 已保存到 {p}")
+            _save_cookie(cookie)
+            print("登录成功")
+            _print_login_info(cookie)
             return 0
         if code == 86038:
             print("二维码已失效,请重新运行登录。")
@@ -227,20 +228,16 @@ def login() -> int:
     return 1
 
 
-def login_status() -> int:
-    """查看 B 站登录状态:本地算 cookie 剩余有效期,联网确认登录态与会员类型。"""
-    cookie = _load_cookie()
-    if not cookie:
-        print("未登录(无 cookie)。用 `--login bilibili` 扫码登录。")
-        return 1
+def _print_login_info(cookie: str) -> bool:
+    """联网确认并打印用户信息;返回是否确认登录有效。"""
     try:
         nav = _get_json("https://api.bilibili.com/x/web-interface/nav", cookie).get("data", {})
     except Exception as e:
         print(f"cookie 已存,但查询登录态失败:{e!r}")
-        return 1
+        return False
     if not nav.get("isLogin"):
         print("cookie 已失效(接口返回未登录)。请重新 `--login bilibili`。")
-        return 1
+        return False
     vip = {0: "非大会员", 1: "大会员", 2: "年度大会员"}.get(nav.get("vipType"), "未知")
     print(f"已登录 : {nav.get('uname')}")
     print(f"会员   : {vip}")
@@ -249,4 +246,15 @@ def login_status() -> int:
         left = (exp - int(time.time())) / 86400
         when = datetime.datetime.fromtimestamp(exp).strftime("%Y-%m-%d")
         print(f"cookie : {when} 过期(剩余 {left:.0f} 天)")
+    return True
+
+
+def login_status() -> int:
+    """查看 B 站登录状态:本地算 cookie 剩余有效期,联网确认登录态与会员类型。"""
+    cookie = _load_cookie()
+    if not cookie:
+        print("未登录(无 cookie)。用 `--login bilibili` 扫码登录。")
+        return 1
+    if not _print_login_info(cookie):
+        return 1
     return 0
