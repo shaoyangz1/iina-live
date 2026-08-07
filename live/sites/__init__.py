@@ -12,7 +12,7 @@ import urllib.parse
 
 from . import huya, douyin, douyu, bilibili
 
-# 已支持的直播平台模块(按需追加)。番剧/影视点播见另一个包 iina_series。
+# 已支持的直播平台模块(按需追加)。番剧/影视点播见另一个包 series。
 SITES = [huya, douyin, douyu, bilibili]
 
 

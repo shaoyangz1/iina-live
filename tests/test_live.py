@@ -1,22 +1,25 @@
 #!/usr/bin/env python3
-"""iina-live 纯函数单元测试:标准库 unittest,零依赖、不触网。
+"""play-with-mvp 直播模块纯函数单元测试:标准库 unittest,零依赖、不触网。
 
 覆盖:清晰度选择、m3u 生成、虎牙签名(uid 移位 / wsSecret)、gzip 解压、
 serve 代理按路径解析房间,以及抖音/斗鱼/B 站三平台的解析纯函数与派发路由。
 触网部分(各平台 parse 的 HTTP 请求)不在测试范围,均通过注入 fetch /
 直接喂假 payload 的方式绕开。
 
-    python -m unittest tests.test_iina_live
+    uv run -m unittest tests.test_live
 """
-import os
 import base64
 import hashlib
 import json as _json
+import os
+import pathlib
+import tempfile
 import unittest
 import urllib.parse
+from unittest import mock
 
-from iina_live import common, server, sites, cli, qr
-from iina_live.sites import huya, douyin, douyu, bilibili
+from live import cli, common, qr, server, sites
+from live.sites import bilibili, douyin, douyu, huya
 
 
 def _stream(quality, url="u0", backups=("u1", "u2")):
@@ -32,6 +35,7 @@ class TestPick(unittest.TestCase):
         name, s = common.pick(info)
         self.assertEqual(name, "蓝光")
         self.assertEqual(s["quality"], 2000)
+
 
     def test_default_prefers_yuanhua_quality_zero(self):
         # quality==0 视为原画,应优先于任何正码率
@@ -53,6 +57,35 @@ class TestPick(unittest.TestCase):
         info = {"streams": {"高清": _stream(500), "蓝光": _stream(2000)}}
         name, _ = common.pick(info, "不存在")
         self.assertEqual(name, "蓝光")
+
+
+class TestPlayerPlatform(unittest.TestCase):
+    def test_windows_defaults_to_mpv(self):
+        with mock.patch.object(common.sys, "platform", "win32"):
+            self.assertEqual(common.default_player(), "mpv")
+
+    def test_macos_defaults_to_iina(self):
+        with mock.patch.object(common.sys, "platform", "darwin"):
+            self.assertEqual(common.default_player(), "iina")
+
+    def test_iina_is_rejected_off_macos(self):
+        with mock.patch.object(cli.sys, "platform", "win32"), self.assertRaisesRegex(
+            RuntimeError, "--player mpv"
+        ):
+            cli._open_iina("https://example.com/live.m3u")
+
+    def test_mpv_executable_skips_project_console_script(self):
+        def which(command, path=None):
+            if path is None:
+                return "/venv/bin/mpv"
+            return "/usr/local/bin/mpv" if path == "/usr/local/bin" else None
+
+        with (
+            mock.patch.object(common.sys, "executable", "/venv/bin/python"),
+            mock.patch.object(common.shutil, "which", side_effect=which),
+            mock.patch.dict(common.os.environ, {"PATH": "/venv/bin:/usr/local/bin"}, clear=True),
+        ):
+            self.assertEqual(common.mpv_executable(), "/usr/local/bin/mpv")
 
 
 class TestM3U(unittest.TestCase):
@@ -653,7 +686,20 @@ class TestBiliCookie(unittest.TestCase):
     def test_cookie_path_respects_xdg(self):
         os.environ["XDG_CONFIG_HOME"] = "/tmp/xdgcfg"
         p = bilibili._cookie_path()
-        self.assertEqual(str(p), "/tmp/xdgcfg/iina-live/bilibili_cookie")
+        self.assertEqual(str(p), "/tmp/xdgcfg/play-with-mvp/bilibili_cookie")
+
+    def test_load_cookie_falls_back_to_legacy_project_path(self):
+        os.environ.pop("BILI_COOKIE", None)
+        with tempfile.TemporaryDirectory() as config_home:
+            os.environ["XDG_CONFIG_HOME"] = config_home
+            current = pathlib.Path(config_home) / "play-with-mvp" / "bilibili_cookie"
+            current.parent.mkdir(parents=True)
+            current.write_text("", encoding="utf-8")
+            legacy = pathlib.Path(config_home) / "iina-live" / "bilibili_cookie"
+            legacy.parent.mkdir(parents=True)
+            legacy.write_text("SESSDATA=legacy", encoding="utf-8")
+
+            self.assertEqual(bilibili._load_cookie(), "SESSDATA=legacy")
 
     def test_cookie_expiry_parsed(self):
         # SESSDATA 是 URL 编码的「创建戳,过期戳,签名」,取第二段

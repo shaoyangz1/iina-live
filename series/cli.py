@@ -1,43 +1,47 @@
 #!/usr/bin/env python3
-"""iina-series 命令行入口(点播:番剧/影视)。
+"""play-with-mvp 点播命令入口(番剧/影视)。
 
-    python -m iina_series <番剧地址> [选项]
+    uv run cli series <番剧地址> [选项]
 
 点播是完整文件、无断流问题,故只有「直链打开」与「打印地址」两种方式(不像直播有 serve 代理)。
 
 选项:
     --quality Q     清晰度显示名或 qn(如 1080P / 4K / HDR / 112),默认最高
     --line K        选第 K 条线路(0 起),默认 0
-    --title T       自定义标题,默认用分集标题
+    --title T       自定义播放器窗口标题,默认用分集标题
     --episode N     选集:第 N 集(1 起)或 latest(最新一集)
-    --player P      iina(默认) / mpv
+    --player P      播放器:macOS 默认 iina，Windows/Linux 默认 mpv
     --print         只解析打印各清晰度/线路地址,不打开播放器
 """
 import argparse
 import os
 import subprocess
+import sys
 import tempfile
 
-from iina_live import common
+from live import common
+
 from . import sites
 
 
 def _open_iina(url):
-    subprocess.run(["open", url])
+    if sys.platform != "darwin":
+        raise RuntimeError("当前平台不支持 IINA，请使用 --player mpv")
+    subprocess.run(["open", url], check=False)
 
 
 def _open_iina_m3u(rid, title, url, headers=None, audio=None):
     """本地 m3u 让 IINA 靠 #EXTINF 名显示标题;带平台 referer/UA + DASH 音轨。"""
-    d = os.path.join(tempfile.gettempdir(), "IINA-SERIES")
+    d = os.path.join(tempfile.gettempdir(), "MPV-SERIES")
     os.makedirs(d, exist_ok=True)
     m3u = os.path.join(d, f"{rid}.m3u")
-    with open(m3u, "w") as f:
+    with open(m3u, "w", encoding="utf-8") as f:
         f.write(common.single_m3u(title, url))
     _open_iina(common.iina_local_url(title, m3u, headers, audio))
 
 
 def _open_mpv(url, title, headers, audio=None):
-    args = ["mpv", url, f"--force-media-title={title}", "--ytdl=no",
+    args = [common.mpv_executable(), url, f"--force-media-title={title}", "--ytdl=no",
             f"--stream-lavf-o={common.RECONNECT}"]
     if audio:                                        # DASH:独立音轨
         args.append(f"--audio-file={audio}")
@@ -61,18 +65,18 @@ def _episode_arg(s):
     return n
 
 
-def main():
-    ap = argparse.ArgumentParser(prog="iina-series")
+def main(argv: list[str] | None = None, *, prog: str = "mpv-series") -> int:
+    ap = argparse.ArgumentParser(prog=prog)
     ap.add_argument("url", help="番剧/影视地址,如 https://www.bilibili.com/bangumi/play/ss28747 或 ep123")
     ap.add_argument("--quality", default=None)
     ap.add_argument("--line", type=int, default=0)
     ap.add_argument("--title", default=None)
     ap.add_argument("--episode", "--ep", type=_episode_arg, default=None, metavar="N|latest",
                     help="选集:第 N 集(1 起)或 latest(最新一集)")
-    ap.add_argument("--player", default="iina", choices=["iina", "mpv"])
+    ap.add_argument("--player", default=common.default_player(), choices=["iina", "mpv"])
     ap.add_argument("--print", dest="print_only", action="store_true",
                     help="只解析打印各清晰度/线路地址,不打开播放器")
-    a = ap.parse_args()
+    a = ap.parse_args(argv)
     return play(a.url, a)
 
 

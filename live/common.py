@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""平台无关的公共工具:HTTP、清晰度选择、iina/m3u 生成、reconnect 参数。
+"""平台无关的公共工具:HTTP、清晰度选择、IINA/mpv 播放参数、m3u 生成。
 
 各平台解析模块(如 huya.py)与派发层(sites.py)共用这里的东西。
 """
 import gzip
 import hashlib
+import os
+import shutil
+import sys
 import urllib.parse
 import urllib.request
 
@@ -16,6 +19,30 @@ RECONNECT = ("reconnect=1,reconnect_streamed=1,reconnect_at_eof=1,"
 # 通用桌面 UA,平台没特别要求时用它
 DEFAULT_UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
               "(KHTML, like Gecko) Version/17.3.1 Safari/605.1.15")
+
+
+def default_player() -> str:
+    """macOS 默认用 IINA，其余平台默认用 PATH 中的 mpv。"""
+    return "iina" if sys.platform == "darwin" else "mpv"
+
+
+def mpv_executable() -> str:
+    """找到系统播放器 mpv，避开虚拟环境中可能存在的同名脚本。"""
+    found = shutil.which("mpv")
+    if not found:
+        raise RuntimeError("找不到 mpv 播放器，请先安装 mpv（Windows 可执行 `scoop install mpv`）")
+
+    venv_bin = os.path.realpath(os.path.dirname(sys.executable))
+    if os.path.realpath(os.path.dirname(found)) != venv_bin:
+        return found
+
+    for entry in os.environ.get("PATH", "").split(os.pathsep):
+        if not entry or os.path.realpath(entry) == venv_bin:
+            continue
+        candidate = shutil.which("mpv", path=entry)
+        if candidate and os.path.realpath(os.path.dirname(candidate)) != venv_bin:
+            return candidate
+    raise RuntimeError("项目命令名占用了 mpv，未找到系统播放器；请安装 mpv 并确保它在 PATH 中")
 
 
 def _gunzip(raw: bytes) -> bytes:

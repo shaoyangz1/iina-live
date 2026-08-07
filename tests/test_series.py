@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""iina-series(点播/番剧)纯函数单元测试:标准库 unittest,零依赖、不触网。
+"""play-with-mvp 点播/番剧模块纯函数单元测试:标准库 unittest,零依赖、不触网。
 
 覆盖:番剧地址解析、选集(集号/latest/正片优先/回退)、mp4/DASH 提流、派发路由。
 触网部分(parse 的 HTTP)不在范围。
 
-    python -m unittest tests.test_iina_series
+    uv run -m unittest tests.test_series
 """
 import argparse
 import unittest
 
-from iina_series import cli, sites
-from iina_series.sites import bilibili as bgm
+from series import cli, sites
+from series.sites import bilibili as bgm
 
 
 class TestResolveId(unittest.TestCase):

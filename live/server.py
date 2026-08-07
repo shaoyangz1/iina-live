@@ -7,7 +7,7 @@
 自动关闭: 客户端断开后,若在宽限期(默认 180 秒)内无新连接则进程自动退出,
 避免关掉播放器后代理空占端口常驻。设 GRACE<=0 可关闭该行为(保持常驻)。
 
-用法: python -m iina_live.server <房间地址> [端口=8787] [清晰度] [宽限秒数=180]
+通常由 `uv run cli` 自动启动；也可直接运行本模块调试。
 """
 import sys
 import time
@@ -105,7 +105,8 @@ class Handler(BaseHTTPRequestHandler):
         global _active, _last_active
         # 健康探测:供 cli 识别本 skill 的代理(须在房间解析之前拦截)
         if self.path.split("?")[0].rstrip("/") == "/__ping__":
-            body = b"iina-live"
+            # 同时保留旧标记，让升级前后的 cli/代理可以双向识别并复用同一端口。
+            body = b"play-with-mvp iina-live"
             self.send_response(200)
             self.send_header("Content-Type", "text/plain")
             self.send_header("Content-Length", str(len(body)))

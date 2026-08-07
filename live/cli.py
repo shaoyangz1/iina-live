@@ -1,24 +1,24 @@
 #!/usr/bin/env python3
-"""iina-live 命令行入口。
+"""play-with-mvp 直播命令入口。
 
-    python -m iina_live <房间地址> [选项]
+    uv run cli <房间地址> [选项]
 
 选项:
     --quality Q     清晰度显示名或码率(如 "原画" / 蓝光10M / 2000)，默认最高
     --line K        直链/m3u 模式下选第 K 条线路(0 起)，默认 0
-    --title T       自定义 IINA 窗口标题，默认用房间名(主播名)
+    --title T       自定义播放器窗口标题，默认用房间名(主播名)
     --mode MODE     打开方式，默认 serve:
                       serve       本地转流代理(推荐)：固定地址，自动跨 2 分钟断流自愈
                       serve-only  只起常驻代理、不打开播放器(房间可省)：别处用 serve 复用它播放，日志集中于此
-                      m3u         多线路播放列表：卡住时在 IINA 播放列表切备用线路
+                      m3u         多线路播放列表：卡住时切备用线路
                       direct      单条 flv 直链：最简单，卡住无法恢复
                       print       只解析打印各清晰度地址，不打开播放器
     --port P        serve 模式端口，默认 8787
-    --player P      direct/m3u 模式播放器: iina(默认) / mpv
+    --player P      播放器:macOS 默认 iina，Windows/Linux 默认 mpv
     --login bilibili 扫码登录(终端出二维码)，cookie 存本地供 B 站取流解锁原画/4K
     --login-status  查看 B 站登录状态、会员类型与 cookie 剩余有效期
 
-番剧/影视点播见另一个包:python -m iina_series <番剧地址>
+番剧/影视点播可直接传番剧地址，或用:uv run cli series <番剧地址>
 """
 import argparse
 import os
@@ -30,9 +30,10 @@ import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
-from . import sites, common
+from . import common, sites
 
 PORT_SCAN = 20   # 从 --port 起最多向后扫描多少个端口
+PROXY_MARKERS = (b"play-with-mvp", b"iina-live")
 
 
 def _probe(port):
@@ -41,7 +42,8 @@ def _probe(port):
         # 超时给到 4s:某些环境对已关闭 loopback 端口要 ~2s 才回“拒绝”,超时太短会在收到
         # 拒绝前先超时、把空闲端口误判为 other。正常机器瞬间拒绝,上限无副作用。
         r = urllib.request.urlopen(f"http://127.0.0.1:{port}/__ping__", timeout=4)
-        return "ours" if b"iina-live" in r.read(32) else "other"
+        body = r.read(32)
+        return "ours" if any(marker in body for marker in PROXY_MARKERS) else "other"
     except urllib.error.URLError as e:
         return "free" if isinstance(e.reason, ConnectionRefusedError) else "other"
     except Exception:
@@ -91,22 +93,24 @@ def _serve_url(port, room, quality):
 
 
 def _open_iina(url):
-    subprocess.run(["open", url])
+    if sys.platform != "darwin":
+        raise RuntimeError("当前平台不支持 IINA，请使用 --player mpv")
+    subprocess.run(["open", url], check=False)
 
 
 def _open_iina_m3u(rid, title, url, headers=None):
     """给 IINA 一个含直链的本地 m3u,靠 #EXTINF 名显示标题(IINA 对网络直链 force-media-title
     在标题栏不生效);direct 模式带 referer/UA,serve 模式 headers 留空(代理已带头)。"""
-    d = os.path.join(tempfile.gettempdir(), "IINA-LIVE")
+    d = os.path.join(tempfile.gettempdir(), "MPV-LIVE")
     os.makedirs(d, exist_ok=True)
     m3u = os.path.join(d, f"{rid}.m3u")
-    with open(m3u, "w") as f:
+    with open(m3u, "w", encoding="utf-8") as f:
         f.write(common.single_m3u(title, url))
     _open_iina(common.iina_local_url(title, m3u, headers))
 
 
 def _open_mpv(flv, title, headers):
-    args = ["mpv", flv, f"--force-media-title={title}", "--ytdl=no",
+    args = [common.mpv_executable(), flv, f"--force-media-title={title}", "--ytdl=no",
             f"--stream-lavf-o={common.RECONNECT}"]
     if headers.get("Referer"):
         args.append(f"--referrer={headers['Referer']}")
@@ -115,8 +119,8 @@ def _open_mpv(flv, title, headers):
     subprocess.Popen(args)
 
 
-def main():
-    ap = argparse.ArgumentParser(prog="iina-live")
+def main(argv: list[str] | None = None, *, prog: str = "mpv-live") -> int:
+    ap = argparse.ArgumentParser(prog=prog)
     ap.add_argument("url", nargs="?", default=None,
                     help="直播间地址，如 https://www.huya.com/lpl；--mode serve-only 可省")
     ap.add_argument("--quality", default=None)
@@ -125,14 +129,14 @@ def main():
     ap.add_argument("--mode", default="serve",
                     choices=["serve", "serve-only", "m3u", "direct", "print"])
     ap.add_argument("--port", type=int, default=8787)
-    ap.add_argument("--player", default="iina", choices=["iina", "mpv"])
+    ap.add_argument("--player", default=common.default_player(), choices=["iina", "mpv"])
     ap.add_argument("--grace", type=int, default=180,
                     help="serve 模式:无连接空闲多少秒后自动退出，<=0 常驻，默认 180")
     ap.add_argument("--login", choices=["bilibili"], default=None,
                     help="扫码登录(目前支持 bilibili):终端出二维码，登录后 cookie 存本地供取流解锁原画/4K")
     ap.add_argument("--login-status", action="store_true",
                     help="查看 B 站登录状态、会员类型与 cookie 剩余有效期")
-    a = ap.parse_args()
+    a = ap.parse_args(argv)
     if a.login_status:
         from .sites import bilibili
         return bilibili.login_status()
@@ -156,7 +160,7 @@ def _serve_only(a):
     if reuse:
         print(f"已有代理在端口 {port} 运行,无需重复起(用 --port 指定别的端口可再起一个)。")
         return 0
-    srv = subprocess.Popen([sys.executable, "-m", "iina_live.server",
+    srv = subprocess.Popen([sys.executable, "-m", "live.server",
                             "",              # 纯中转:不绑房间(裸连报错);复用方都带 ?room=
                             str(port), a.quality or "",
                             "0"])            # 纯代理强制常驻:没有播放器生命周期可挂靠
@@ -165,7 +169,7 @@ def _serve_only(a):
     hint = "" if port == 8787 else f" --port {port}"   # 非默认端口才需在播放命令里带上
     print(f"本地代理已启动(端口 {port}),常驻。Ctrl+C 结束。")
     print("另开一个命令行,播放任意房间即会复用本代理(断流/转流日志都集中在这里):")
-    print(f"    uv run -m iina_live <房间地址>{hint}")
+    print(f"    uv run cli <房间地址>{hint}")
     try:
         srv.wait()
     except KeyboardInterrupt:
@@ -213,12 +217,12 @@ def play_room(url, a):
         return 0
 
     if a.mode == "m3u":
-        d = os.path.join(tempfile.gettempdir(), "IINA-LIVE")
+        d = os.path.join(tempfile.gettempdir(), "MPV-LIVE")
         os.makedirs(d, exist_ok=True)
         path = os.path.join(d, f"{info['rid']}.m3u")
-        with open(path, "w") as f:
+        with open(path, "w", encoding="utf-8") as f:
             f.write(common.m3u_content(title, stream))
-        # m3u 里是 flv 直链，mpv 抓取时仍需 referer/UA，故用带头的 iina_url
+        # m3u 里是 flv 直链，mpv 抓取时仍需 referer/UA。
         if a.player == "mpv":
             _open_mpv(path, title, headers)
         else:
@@ -235,7 +239,7 @@ def play_room(url, a):
     if reuse:
         print(f"复用已有代理 (端口 {port})，无需新起。")
     else:
-        srv = subprocess.Popen([sys.executable, "-m", "iina_live.server",
+        srv = subprocess.Popen([sys.executable, "-m", "live.server",
                                 url, str(port), a.quality or "", str(a.grace)])
         if not _wait_ready(port):
             print("警告:本地代理未在预期时间内就绪，仍尝试打开播放器。")
