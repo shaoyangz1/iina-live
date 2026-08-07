@@ -41,14 +41,17 @@ def _open_iina_m3u(rid, title, url, headers=None, audio=None):
 
 
 def _open_mpv(url, title, headers, audio=None):
-    args = [common.mpv_executable(), url, f"--force-media-title={title}", "--ytdl=no"]
+    args = [common.mpv_executable(), url, f"--force-media-title={title}", "--ytdl=no",
+            "--audio=auto", "--mute=no"]
+    if sys.platform == "win32":
+        args.append("--audio-device=auto")
     if audio:                                        # DASH:独立音轨
         args.append(f"--audio-file={audio}")
     if headers.get("Referer"):
         args.append(f"--referrer={headers['Referer']}")
     if headers.get("User-Agent"):
         args.append(f"--user-agent={headers['User-Agent']}")
-    subprocess.Popen(args)
+    subprocess.run(args, check=False)
 
 
 def _episode_arg(s):
@@ -116,12 +119,13 @@ def play(url, a):
                 print(f"  音轨 : {s['audio']}")
         return 0
 
+    note = "，已配 DASH 音轨" if audio else ""
     if a.player == "mpv":
+        print(f"正在用直链播放 (mpv){note}。关闭播放器后返回命令行。")
         _open_mpv(url_pick, title, headers, audio)
     else:
         _open_iina_m3u(info["rid"], title, url_pick, headers, audio)
-    note = "，已配 DASH 音轨" if audio else ""
-    print(f"已用直链打开 ({a.player}){note}。点播为完整文件,卡住重开即可。")
+        print(f"已用直链打开 (iina){note}。点播为完整文件,卡住重开即可。")
     return 0
 
 

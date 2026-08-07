@@ -115,10 +115,11 @@ class TestEpisodeArg(unittest.TestCase):
 
 
 class TestPlayerArgs(unittest.TestCase):
-    def test_mpv_vod_does_not_reconnect_at_normal_eof(self):
+    def test_mpv_vod_waits_and_enables_audio_without_eof_reconnect(self):
         with (
             mock.patch.object(common, "mpv_executable", return_value="mpv"),
-            mock.patch.object(cli.subprocess, "Popen") as popen,
+            mock.patch.object(cli.subprocess, "run") as run,
+            mock.patch.object(cli.sys, "platform", "win32"),
         ):
             cli._open_mpv(
                 "https://cdn/video.m4s",
@@ -127,9 +128,13 @@ class TestPlayerArgs(unittest.TestCase):
                 "https://cdn/audio.m4s",
             )
 
-        args = popen.call_args.args[0]
+        args = run.call_args.args[0]
+        self.assertEqual(run.call_args.kwargs, {"check": False})
         self.assertFalse(any(x.startswith("--stream-lavf-o=") for x in args))
         self.assertIn("--audio-file=https://cdn/audio.m4s", args)
+        self.assertIn("--audio=auto", args)
+        self.assertIn("--mute=no", args)
+        self.assertIn("--audio-device=auto", args)
 
     def test_iina_vod_url_does_not_reconnect_at_normal_eof(self):
         url = common.iina_local_url(
