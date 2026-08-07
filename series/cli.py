@@ -14,6 +14,7 @@
     --print         只解析打印各清晰度/线路地址,不打开播放器
 """
 import argparse
+import json
 import os
 import subprocess
 import sys
@@ -22,6 +23,9 @@ import tempfile
 from live import common
 
 from . import sites
+
+_WATCHLIST = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                          ".series_watchlist")
 
 
 def _open_iina(url):
@@ -68,6 +72,11 @@ def _episode_arg(s):
 
 
 def main(argv: list[str] | None = None, *, prog: str = "mpv-series") -> int:
+    av = argv or []
+    # 子命令: add / list
+    if av and av[0] in {"add", "list"}:
+        return _watchlist_cmd(av, prog)
+
     ap = argparse.ArgumentParser(prog=prog)
     ap.add_argument("url", help="番剧/影视地址,如 https://www.bilibili.com/bangumi/play/ss28747 或 ep123")
     ap.add_argument("--quality", default=None)
@@ -84,6 +93,52 @@ def main(argv: list[str] | None = None, *, prog: str = "mpv-series") -> int:
     except KeyboardInterrupt:
         print("\n已退出")
         return 0
+
+
+def _load_watchlist():
+    if not os.path.exists(_WATCHLIST):
+        return []
+    try:
+        with open(_WATCHLIST, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except json.JSONDecodeError:
+        return []
+
+
+def _save_watchlist(items):
+    with open(_WATCHLIST, "w", encoding="utf-8") as f:
+        json.dump(items, f, ensure_ascii=False, indent=2)
+
+
+def _watchlist_cmd(argv, prog):
+    if argv[0] == "list":
+        items = _load_watchlist()
+        if not items:
+            print("追剧列表为空。用 {0} add <番剧地址> 添加。".format(prog))
+            return 0
+        for i, it in enumerate(items, 1):
+            print(f"  {i}. {it['nick']}（共 {it['total']} 集）\n     {it['url']}")
+        return 0
+    # add
+    if len(argv) < 2:
+        print("用法: {0} add <番剧地址>".format(prog))
+        return 1
+    url = argv[1]
+    items = _load_watchlist()
+    if any(it["url"] == url for it in items):
+        print("已在追剧列表中。")
+        return 0
+    try:
+        info = sites.get_season_info(url)
+    except Exception as e:
+        print(f"无法解析番剧: {e}")
+        return 1
+    eps = info["episodes"]
+    total = max((int(e["title"]) for e in eps if e["title"].isdigit()), default=len(eps))
+    items.append({"url": url, "nick": info["nick"], "total": total})
+    _save_watchlist(items)
+    print(f"已添加: {info['nick']}（共 {total} 集）")
+    return 0
 
 
 def _resolve(url, a, total=None):
@@ -169,6 +224,15 @@ def play(url, a):
         nxt = a.episode + 1
         hits = [e for e in eps if str(e.get("title", "")).strip() == str(nxt)]
         if not hits:
+            return 0
+
+        print(f"\n继续播放下一集? [Y/n]", end="", flush=True)
+        try:
+            ans = input().strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print("\n已退出")
+            return 0
+        if ans and ans != "y":
             return 0
         a.episode = nxt
 

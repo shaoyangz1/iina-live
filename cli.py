@@ -38,6 +38,8 @@ _HELP = """usage: cli [live|series] <地址> [选项]
 默认播放器：macOS 使用 IINA，Windows/Linux 使用 mpv；Windows 可先执行 `scoop install mpv`。
 
 B 站登录：cli live --login bilibili；刷新登录凭据：cli live --login-refresh bilibili。
+
+追剧清单：cli series add <番剧地址> / cli series list
 """
 
 
