@@ -8,7 +8,9 @@
 """
 import argparse
 import unittest
+from unittest import mock
 
+from live import common
 from series import cli, sites
 from series.sites import bilibili as bgm
 
@@ -110,6 +112,36 @@ class TestEpisodeArg(unittest.TestCase):
         for bad in ("abc", "0", "-1"):
             with self.assertRaises(argparse.ArgumentTypeError):
                 cli._episode_arg(bad)
+
+
+class TestPlayerArgs(unittest.TestCase):
+    def test_mpv_vod_does_not_reconnect_at_normal_eof(self):
+        with (
+            mock.patch.object(common, "mpv_executable", return_value="mpv"),
+            mock.patch.object(cli.subprocess, "Popen") as popen,
+        ):
+            cli._open_mpv(
+                "https://cdn/video.m4s",
+                "标题",
+                {"Referer": "https://www.bilibili.com/", "User-Agent": "UA"},
+                "https://cdn/audio.m4s",
+            )
+
+        args = popen.call_args.args[0]
+        self.assertFalse(any(x.startswith("--stream-lavf-o=") for x in args))
+        self.assertIn("--audio-file=https://cdn/audio.m4s", args)
+
+    def test_iina_vod_url_does_not_reconnect_at_normal_eof(self):
+        url = common.iina_local_url(
+            "标题",
+            "/tmp/video.m3u",
+            {"Referer": "https://www.bilibili.com/"},
+            "https://cdn/audio.m4s",
+            reconnect=False,
+        )
+
+        self.assertNotIn("mpv_stream-lavf-o=", url)
+        self.assertIn("mpv_audio-file=", url)
 
 
 class TestDispatch(unittest.TestCase):

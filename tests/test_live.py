@@ -118,6 +118,7 @@ class TestM3U(unittest.TestCase):
         u = common.iina_local_url("标题", "/tmp/x.m3u")
         self.assertTrue(u.startswith("iina://open?"))
         self.assertIn("mpv_force-media-title=", u)   # 靠 #EXTINF 显示标题,但仍带上
+        self.assertIn("mpv_stream-lavf-o=", u)
         self.assertNotIn("mpv_audio-file=", u)
 
     def test_iina_local_url_with_headers_and_audio(self):

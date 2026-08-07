@@ -76,8 +76,10 @@ def pick(info: dict, quality: str = None):
     return name, streams[name]
 
 
-def _scheme(url: str, title: str, mpv_opts: dict) -> str:
-    opts = {"force-media-title": title, "ytdl": "no", "stream-lavf-o": RECONNECT}
+def _scheme(url: str, title: str, mpv_opts: dict, reconnect: bool = True) -> str:
+    opts = {"force-media-title": title, "ytdl": "no"}
+    if reconnect:
+        opts["stream-lavf-o"] = RECONNECT
     opts.update(mpv_opts)
     q = ["url=" + urllib.parse.quote(url, safe="")]
     for k, v in opts.items():
@@ -96,23 +98,25 @@ def _header_opts(headers: dict) -> dict:
     return opts
 
 
-def iina_url(title: str, flv: str, headers: dict = None, audio: str = None) -> str:
+def iina_url(title: str, flv: str, headers: dict = None, audio: str = None,
+             reconnect: bool = True) -> str:
     """直链/含直链的本地文件(m3u):mpv 直接拉流,需带平台的 referer/UA。
     audio 非空时(DASH 点播,音视频分轨)作为独立音轨(mpv audio-file)一并交给播放器。"""
     opts = _header_opts(headers)
     if audio:
         opts["audio-file"] = audio
-    return _scheme(flv, title, opts)
+    return _scheme(flv, title, opts, reconnect)
 
 
-def iina_local_url(title: str, local_url: str, headers: dict = None, audio: str = None) -> str:
+def iina_local_url(title: str, local_url: str, headers: dict = None, audio: str = None,
+                   reconnect: bool = True) -> str:
     """打开本地 m3u(靠 #EXTINF 名显示标题):
     - serve 模式:local_url 是 localhost 代理,referer/UA 由代理负责,headers 留空;
     - direct 模式:m3u 里是平台 CDN 直链,需带 referer/UA;DASH 点播再带 audio 音轨。"""
     opts = _header_opts(headers)
     if audio:
         opts["audio-file"] = audio
-    return _scheme(local_url, title, opts)
+    return _scheme(local_url, title, opts, reconnect)
 
 
 def m3u_content(title: str, stream: dict) -> str:

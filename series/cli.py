@@ -37,12 +37,11 @@ def _open_iina_m3u(rid, title, url, headers=None, audio=None):
     m3u = os.path.join(d, f"{rid}.m3u")
     with open(m3u, "w", encoding="utf-8") as f:
         f.write(common.single_m3u(title, url))
-    _open_iina(common.iina_local_url(title, m3u, headers, audio))
+    _open_iina(common.iina_local_url(title, m3u, headers, audio, reconnect=False))
 
 
 def _open_mpv(url, title, headers, audio=None):
-    args = [common.mpv_executable(), url, f"--force-media-title={title}", "--ytdl=no",
-            f"--stream-lavf-o={common.RECONNECT}"]
+    args = [common.mpv_executable(), url, f"--force-media-title={title}", "--ytdl=no"]
     if audio:                                        # DASH:独立音轨
         args.append(f"--audio-file={audio}")
     if headers.get("Referer"):
