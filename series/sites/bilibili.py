@@ -5,14 +5,14 @@
     season 接口(ep_id/season_id → 分集 cid/bvid) → pgc/player/web/playurl(fnval=4048 DASH) → 直链
 
 fnval=4048 取 DASH(VIP 高清 1080P+/4K/HDR,音视频分轨);mp4(fnval=1)最高约 720P,仅作回退。
-复用 iina_live 的 HTTP 工具与 B 站登录 cookie(直播原画与番剧共用同一账号登录)。
+复用 live 的 HTTP 工具与 B 站登录 cookie(直播原画与番剧共用同一账号登录)。
 """
 import re
 import json
 import urllib.parse
 
-from iina_live.common import http_get
-from iina_live.sites import bilibili as _live   # 复用 B 站登录 cookie(_load_cookie)
+from live.common import http_get
+from live.sites import bilibili as _live   # 复用 B 站登录 cookie(_load_cookie)
 
 DOMAINS = ["bilibili.com"]
 UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
@@ -135,7 +135,7 @@ def parse(url: str, episode: int = None) -> dict:
         f"https://api.bilibili.com/pgc/player/web/playurl?{q}", _live._load_cookie()
     )
     if play.get("code") == -10403:
-        raise RuntimeError("该内容需要大会员/地区限制;请先在 iina_live 用 `--login bilibili` 登录会员账号")
+        raise RuntimeError("该内容需要大会员/地区限制;请先用 `uv run cli --login bilibili` 登录会员账号")
     result = play.get("result") or {}
     info["streams"] = _streams_from_dash(result.get("dash") or {}) or _streams_from_play(result)
     return info
