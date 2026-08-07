@@ -1,7 +1,7 @@
 # play-with-mvp 开发约定
 
 面向 IINA/mpv 的**直播**流解析器 + **点播**扩展。三个包:
-- `cli.py` — 对外统一命令入口,`uv run cli ...`,自动识别直播/番剧,也支持 `live` / `series` 显式类型;
+- `cli.py` — 对外统一命令入口,`uv run python cli.py ...`,自动识别直播/番剧,也支持 `live` / `series` 显式类型;
 - `live` — 纯直播(虎牙/抖音/斗鱼/B站直播);
 - `series` — 点播(B站番剧/影视),**复用** live 的 common/播放/B站登录 cookie。
 live 保持干净:不含任何点播代码。后续开发遵循以下约定。
@@ -10,7 +10,7 @@ live 保持干净:不含任何点播代码。后续开发遵循以下约定。
 
 - Python 固定 `3.14.*`(见 pyproject),用 [uv](https://github.com/astral-sh/uv) 运行。
 - **纯标准库,零第三方依赖**。不要引入新依赖——能几行标准库搞定的不装包。
-- 入口统一 `uv run cli ...`;`python -m live` / `python -m series` 仅作兼容。
+- 入口统一 `uv run python cli.py ...`;`python -m live` / `python -m series` 仅作兼容。
 - 播放器按平台选择:macOS 默认 IINA,Windows/Linux 默认 mpv;Windows 用 Scoop 安装 `mpv`。
 
 ## 结构
