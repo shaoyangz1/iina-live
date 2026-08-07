@@ -99,8 +99,8 @@ url           直播间地址(如 https://live.bilibili.com/24678311),--mode ser
   避免首次启动被拖慢;发现本项目已在跑的代理(靠 `/__ping__` 识别)则直接复用、不重复起。
 - **哔哩哔哩原画/登录**:B 站原画/4K 需登录后取流。两种方式:
   1. **扫码登录**:`uv run cli --login bilibili` —— 终端打印二维码(纯标准库自绘),用「哔哩哔哩」
-     手机 App 扫码确认,cookie 自动存到 `~/.config/play-with-mvp/bilibili_cookie`(仅本人可读),之后取流自动带上；旧版 `~/.config/iina-live/` 登录态仍会自动读取;
-  2. 或设环境变量 `BILI_COOKIE`(浏览器里的 `SESSDATA`)。
+     手机 App 扫码确认,cookie 自动存到项目根目录 `.cookie/bilibili`(仅本人可读),之后取流自动带上；如果文件不存在,请重新扫码登录。
+  2. 不读取环境变量或其他目录中的 cookie。
 
   都没有则走免登录,最高约蓝光。查看登录态与有效期:`uv run cli --login-status`
   (显示用户名、会员类型、cookie 剩余天数——过期时间从 SESSDATA 本地解析,登录态联网确认)。

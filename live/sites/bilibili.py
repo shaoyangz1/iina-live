@@ -7,8 +7,7 @@ room_init 短号转真房号 → getRoomPlayInfo 拿多档多线路 flv。
 直播取流无需 wbi 签名(与点播 x/player/wbi/playurl 不同,streamlink/yt-dlp/ihmily
 现行做法均明文 query),纯 urllib+json 即可。原画/4K 需登录后取流:
 - 扫码登录: `uv run cli --login bilibili`,cookie 存到本地(见 _cookie_path);或
-- 环境变量 BILI_COOKIE(浏览器里的 SESSDATA);
-两者都没有则免登录、最高约蓝光。
+没有 cookie 时请重新运行 `uv run cli --login bilibili`。
 """
 import os
 import json
@@ -116,27 +115,17 @@ _WANT = ("SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5")
 
 
 def _cookie_path() -> pathlib.Path:
-    base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
-    return pathlib.Path(base) / "play-with-mvp" / "bilibili_cookie"
-
-
-def _legacy_cookie_path() -> pathlib.Path:
-    """旧项目名下的 cookie 路径，仅用于无感迁移已有登录态。"""
-    base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
-    return pathlib.Path(base) / "iina-live" / "bilibili_cookie"
+    """项目根目录的统一登录态文件路径。"""
+    return pathlib.Path(__file__).resolve().parents[2] / ".cookie" / "bilibili"
 
 
 def _load_cookie():
-    """取登录 cookie:环境变量 BILI_COOKIE 优先(裸 SESSDATA 值会自动包成 SESSDATA=..),
-    否则读扫码登录落盘的文件;都没有返回 None(走免登录)。"""
-    env = os.environ.get("BILI_COOKIE")
-    if env:
-        return env if "=" in env else f"SESSDATA={env}"
-    for p in (_cookie_path(), _legacy_cookie_path()):
-        if p.exists():
-            cookie = p.read_text(encoding="utf-8").strip()
-            if cookie:
-                return cookie
+    """只读取项目根目录 `.cookie/bilibili`，没有文件则返回 None。"""
+    p = _cookie_path()
+    if p.exists():
+        cookie = p.read_text(encoding="utf-8").strip()
+        if cookie:
+            return cookie
     return None
 
 

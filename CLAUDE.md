@@ -64,8 +64,8 @@ tests/               标准库 unittest(test_play / test_live / test_series)
   `live.common` 和 `live.sites.bilibili._load_cookie`(B站登录直播/番剧共用);依赖方向单向
   (series → live),别让 live 反向依赖 series。
 - **B 站登录**:`--login bilibili` 走扫码(qrcode/generate → 终端二维码 → poll 轮询 → cookie 落盘
-  `~/.config/play-with-mvp/bilibili_cookie`,并兼容读取旧路径 `~/.config/iina-live/bilibili_cookie`)。
-  `bilibili._load_cookie()` 供取流用(env `BILI_COOKIE` 优先)。
+  项目根目录 `.cookie/bilibili`;没有该文件时请重新扫码登录。
+  `bilibili._load_cookie()` 只读取这一路径。
   `qr.py` 是从零实现的 QR 编码器(byte/ECC-L/v1-10),改动务必用真实解码器(如 OpenCV)验证可扫,
   别只肉眼看——格式信息行列、alignment 跳过条件都踩过坑。
 

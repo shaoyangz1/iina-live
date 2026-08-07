@@ -653,21 +653,6 @@ class TestQR(unittest.TestCase):
 
 
 class TestBiliCookie(unittest.TestCase):
-    def setUp(self):
-        self._env = dict(os.environ)
-
-    def tearDown(self):
-        os.environ.clear()
-        os.environ.update(self._env)
-
-    def test_env_full_cookie_used_verbatim(self):
-        os.environ["BILI_COOKIE"] = "SESSDATA=abc; bili_jct=xyz"
-        self.assertEqual(bilibili._load_cookie(), "SESSDATA=abc; bili_jct=xyz")
-
-    def test_env_bare_sessdata_wrapped(self):
-        os.environ["BILI_COOKIE"] = "rawvalue"
-        self.assertEqual(bilibili._load_cookie(), "SESSDATA=rawvalue")
-
     def test_cookies_from_setcookie_filters_wanted(self):
         setc = ["SESSDATA=aa; Path=/; HttpOnly", "bili_jct=bb; Path=/",
                 "DedeUserID=123; Path=/", "buvid3=zzz; Path=/"]
@@ -684,23 +669,31 @@ class TestBiliCookie(unittest.TestCase):
         self.assertIn("bili_jct=j", got)
         self.assertNotIn("gourl", got)
 
-    def test_cookie_path_respects_xdg(self):
-        os.environ["XDG_CONFIG_HOME"] = "/tmp/xdgcfg"
+    def test_cookie_path_is_under_project_root(self):
         p = bilibili._cookie_path()
-        self.assertEqual(str(p), "/tmp/xdgcfg/play-with-mvp/bilibili_cookie")
+        self.assertEqual(p, pathlib.Path(bilibili.__file__).resolve().parents[2] / ".cookie" / "bilibili")
 
-    def test_load_cookie_falls_back_to_legacy_project_path(self):
-        os.environ.pop("BILI_COOKIE", None)
-        with tempfile.TemporaryDirectory() as config_home:
-            os.environ["XDG_CONFIG_HOME"] = config_home
-            current = pathlib.Path(config_home) / "play-with-mvp" / "bilibili_cookie"
-            current.parent.mkdir(parents=True)
-            current.write_text("", encoding="utf-8")
-            legacy = pathlib.Path(config_home) / "iina-live" / "bilibili_cookie"
-            legacy.parent.mkdir(parents=True)
-            legacy.write_text("SESSDATA=legacy", encoding="utf-8")
+    def test_load_cookie_reads_only_project_path(self):
+        with tempfile.TemporaryDirectory() as root:
+            project = pathlib.Path(root) / ".cookie" / "bilibili"
+            project.parent.mkdir(parents=True)
+            project.write_text("SESSDATA=project", encoding="utf-8")
+            with mock.patch.object(bilibili, "_cookie_path", return_value=project):
+                self.assertEqual(bilibili._load_cookie(), "SESSDATA=project")
 
-            self.assertEqual(bilibili._load_cookie(), "SESSDATA=legacy")
+    def test_save_cookie_uses_project_path(self):
+        with tempfile.TemporaryDirectory() as root:
+            project = pathlib.Path(root) / ".cookie" / "bilibili"
+            with mock.patch.object(bilibili, "_cookie_path", return_value=project):
+                saved = bilibili._save_cookie("SESSDATA=project")
+            self.assertEqual(saved, project)
+            self.assertEqual(project.read_text(encoding="utf-8"), "SESSDATA=project")
+
+    def test_load_cookie_missing_returns_none(self):
+        with tempfile.TemporaryDirectory() as root:
+            project = pathlib.Path(root) / ".cookie" / "bilibili"
+            with mock.patch.object(bilibili, "_cookie_path", return_value=project):
+                self.assertIsNone(bilibili._load_cookie())
 
     def test_cookie_expiry_parsed(self):
         # SESSDATA 是 URL 编码的「创建戳,过期戳,签名」,取第二段
