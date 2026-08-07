@@ -43,16 +43,18 @@ def resolve_id(url: str):
 
 def _pick_episode(season: dict, kind: str, num: int, episode=None) -> dict:
     """从 season 的分集列表挑目标集(纯函数):
-    - episode=='latest' → 最后一集(最新);
-    - episode 为正整数 → **优先按正片集号匹配**(ep.title == 该数字,长番混入重制版/特别篇时
-      列表位置≠集号);同集号有多条(正片 + 44s「看点/PV」)时取时长最长的=正片;匹配不到再回退
-      列表第 episode 项(超范围 {});
+    - episode=='latest' → 取最后一个标题为数字的正片(避开列表尾的 PV);
+    - episode 为正整数 → **按正片集号匹配**(ep.title == 该数字),同集号多条取时长最长=正片;
+      匹配不到回退列表第 episode 项(超范围 {});
     - 否则 ep 地址精确匹配 ep_id,ss 地址取第一集(正片首集)。"""
     eps = season.get("episodes") or []
     if not eps:
         return {}
     if episode == "latest":
-        return eps[-1]
+        last = max(
+            (e for e in eps if str(e.get("title", "")).strip().isdigit()),
+            key=lambda e: int(e["title"]), default=eps[-1])
+        return last
     if episode is not None:
         hits = [e for e in eps if str(e.get("title", "")).strip() == str(episode)]
         if hits:
@@ -101,6 +103,27 @@ def _streams_from_dash(dash: dict) -> dict:
                 "audio": audio_url,
             }
     return streams
+
+
+def get_season_info(url: str) -> dict:
+    """只取番剧基本信息和分集列表(不取播放流)。"""
+    kind, num = resolve_id(url)
+    key = "ep_id" if kind == "ep" else "season_id"
+    season = _get_json(f"https://api.bilibili.com/pgc/view/web/season?{key}={num}")["result"]
+    eps = season.get("episodes") or []
+    out = []
+    for e in eps:
+        out.append({
+            "id": e.get("id"), "cid": e.get("cid"), "bvid": e.get("bvid", ""),
+            "title": e.get("title") or "", "long_title": e.get("long_title") or "",
+            "duration": e.get("duration", 0) or 0,
+        })
+    return {
+        "kind": kind, "num": num,
+        "nick": season.get("season_title") or season.get("title"),
+        "episodes": out,
+        "season_id": season.get("season_id"),
+    }
 
 
 def parse(url: str, episode: int = None) -> dict:

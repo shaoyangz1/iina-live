@@ -79,36 +79,35 @@ def main(argv: list[str] | None = None, *, prog: str = "mpv-series") -> int:
     ap.add_argument("--print", dest="print_only", action="store_true",
                     help="只解析打印各清晰度/线路地址,不打开播放器")
     a = ap.parse_args(argv)
-    return play(a.url, a)
+    try:
+        return play(a.url, a)
+    except KeyboardInterrupt:
+        print("\n已退出")
+        return 0
 
 
-def play(url, a):
+def _resolve(url, a, total=None):
+    """解析一集,返回 (headers, url, title, audio) 或全是 None。"""
     info = sites.parse(url, episode=a.episode)
     headers = sites.play_headers(url)
-    total = info.get("episodes")
-    if info.get("season_id"):
-        line = f"整季 : ss{info['season_id']}"
-        if total and total > 1:
-            cur = total if a.episode == "latest" else (a.episode or 1)
-            tag = "最新" if a.episode == "latest" else ""
-            line += f"（共 {total} 集，当前第 {cur} 集{tag}，--episode N|latest 选集）"
-        print(line)
-    print(f"编号 : {info['rid']}")
-    print(f"番名 : {info['nick']}")
+    nick = info["nick"]
+    if total and total > 1:
+        nick += f"（共 {total} 集，当前第 {a.episode} 集）"
+    print(f"番名 : {nick}")
     print(f"标题 : {info['title']}")
     if not info["living"]:
         print("未取到可播放内容(可能未上线或地区限制)。")
-        return 1
+        return None, None, None, None
 
     name, stream = common.pick(info, a.quality)
     if stream is None:
         print("未取到可播放的流。")
-        return 1
+        return None, None, None, None
     title = a.title or info.get("title") or info.get("nick")
     urls = [stream["url"]] + stream["backups"]
     url_pick = urls[a.line % len(urls)]
     audio = stream.get("audio")
-    print(f"清晰度 : {name} (quality={stream['quality']}, 线路数={len(urls)})")
+    print(f"清晰度 : {name}")
 
     if a.print_only:
         for n, s in sorted(info["streams"].items(), key=lambda x: -x[1]["quality"]):
@@ -117,16 +116,61 @@ def play(url, a):
                 print(f"  线路{i}: {x}")
             if s.get("audio"):
                 print(f"  音轨 : {s['audio']}")
-        return 0
+        return None, None, None, None
 
-    note = "，已配 DASH 音轨" if audio else ""
-    if a.player == "mpv":
-        print(f"正在用直链播放 (mpv){note}。关闭播放器后返回命令行。")
-        _open_mpv(url_pick, title, headers, audio)
-    else:
-        _open_iina_m3u(info["rid"], title, url_pick, headers, audio)
-        print(f"已用直链打开 (iina){note}。点播为完整文件,卡住重开即可。")
-    return 0
+    return headers, url_pick, title, audio
+
+
+def play(url, a):
+    # 取分集列表
+    season = sites.get_season_info(url)
+    eps = season["episodes"]
+    total = max(
+        (int(e["title"]) for e in eps if e["title"].isdigit()),
+        default=len(eps))
+
+    # 未指定集数时:交互选择,回车默认最新
+    interactive = False
+    if not a.print_only:
+        if a.episode is None:
+            interactive = True
+            if len(eps) > 1:
+                print(f"番名 : {season['nick']}（共 {total} 集）")
+                print(f"输入集数 1-{total},回车默认最新")
+                try:
+                    choice = input().strip()
+                except (EOFError, KeyboardInterrupt):
+                    print("\n已退出")
+                    return 0
+                if choice:
+                    a.episode = int(choice)
+                else:
+                    a.episode = total
+        elif a.episode == "latest":
+            a.episode = total
+
+    while True:
+        headers, url_pick, title, audio = _resolve(url, a, total)
+        if headers is None:
+            return 1 if not a.print_only else 0
+        if a.print_only:
+            return 0
+
+        info = sites.parse(url, episode=a.episode)
+        if a.player == "mpv":
+            _open_mpv(url_pick, title, headers, audio)
+        else:
+            _open_iina_m3u(info["rid"], title, url_pick, headers, audio)
+
+        if not interactive:
+            return 0
+
+        # 找下一集,没有则退出
+        nxt = a.episode + 1
+        hits = [e for e in eps if str(e.get("title", "")).strip() == str(nxt)]
+        if not hits:
+            return 0
+        a.episode = nxt
 
 
 if __name__ == "__main__":

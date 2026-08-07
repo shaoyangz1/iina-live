@@ -27,5 +27,9 @@ def parse(url: str, episode=None) -> dict:
     return get_site(url).parse(url, episode=episode)
 
 
+def get_season_info(url: str) -> dict:
+    return get_site(url).get_season_info(url)
+
+
 def play_headers(url: str) -> dict:
     return getattr(get_site(url), "PLAY_HEADERS", {})
