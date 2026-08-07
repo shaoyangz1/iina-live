@@ -65,7 +65,8 @@ tests/               标准库 unittest(test_play / test_live / test_series)
   (series → live),别让 live 反向依赖 series。
 - **B 站登录**:`--login bilibili` 走扫码(qrcode/generate → 终端二维码 → poll 轮询 → cookie 落盘
   项目根目录 `.cookie/bilibili`;没有该文件时请重新扫码登录。
-  `bilibili._load_cookie()` 只读取这一路径。
+  新版扫码同时落盘 `.cookie/bilibili.refresh_token`;`--login-refresh bilibili` 使用它刷新登录态。
+  `bilibili._load_cookie()` 只读取 `.cookie/bilibili`。
   `qr.py` 是从零实现的 QR 编码器(byte/ECC-L/v1-10),改动务必用真实解码器(如 OpenCV)验证可扫,
   别只肉眼看——格式信息行列、alignment 跳过条件都踩过坑。
 

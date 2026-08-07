@@ -13,6 +13,7 @@ _VALUE_OPTIONS = {
     "--grace",
     "--line",
     "--login",
+    "--login-refresh",
     "--mode",
     "--player",
     "--port",
@@ -35,6 +36,8 @@ _HELP = """usage: cli [live|series] <地址> [选项]
 查看分类选项：cli live --help / cli series --help
 
 默认播放器：macOS 使用 IINA，Windows/Linux 使用 mpv；Windows 可先执行 `scoop install mpv`。
+
+B 站登录：cli live --login bilibili；刷新登录凭据：cli live --login-refresh bilibili。
 """
 
 

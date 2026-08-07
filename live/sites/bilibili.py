@@ -13,9 +13,14 @@ import os
 import json
 import time
 import datetime
+import hashlib
+import html
 import pathlib
+import re
+import secrets
 import urllib.parse
 import urllib.request
+import base64
 
 from ..common import http_get
 
@@ -112,11 +117,21 @@ def parse(url: str) -> dict:
 # ---------------- 登录态 cookie ----------------
 # 取流用到的关键 cookie(SESSDATA 解锁清晰度,其余登录态一并带上)
 _WANT = ("SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5")
+_COOKIE_INFO = "https://passport.bilibili.com/x/passport-login/web/cookie/info"
+_COOKIE_REFRESH = "https://passport.bilibili.com/x/passport-login/web/cookie/refresh"
+_CONFIRM_REFRESH = "https://passport.bilibili.com/x/passport-login/web/confirm/refresh"
+_CORRESPOND = "https://www.bilibili.com/correspond/1/"
+_RSA_N = "y4HdjgJHBlbaBN04VERG4qNBIFHP6a3GozCl75AihQloSWCXC5HDNgyinEnhaQ_4-gaMud_GF50elYXLlCToR9se9Z8z433U3KjM-3Yx7ptKkmQNAMggQwAVKgq3zYAoidNEWuxpkY_mAitTSRLnsJW-NCTa0bqBFF6Wm1MxgfE"
+_RSA_E = 65537
 
 
 def _cookie_path() -> pathlib.Path:
     """项目根目录的统一登录态文件路径。"""
     return pathlib.Path(__file__).resolve().parents[2] / ".cookie" / "bilibili"
+
+
+def _refresh_token_path() -> pathlib.Path:
+    return _cookie_path().with_name("bilibili.refresh_token")
 
 
 def _load_cookie():
@@ -155,6 +170,25 @@ def _save_cookie(cookie: str) -> pathlib.Path:
     return p
 
 
+def _load_refresh_token() -> str | None:
+    p = _refresh_token_path()
+    if not p.exists():
+        return None
+    token = p.read_text(encoding="utf-8").strip()
+    return token or None
+
+
+def _save_refresh_token(token: str) -> pathlib.Path:
+    p = _refresh_token_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(token, encoding="utf-8")
+    try:
+        os.chmod(p, 0o600)
+    except OSError:
+        pass
+    return p
+
+
 def _cookies_from_setcookie(set_cookies) -> str:
     """从响应的 Set-Cookie 头列表拼出需要的 cookie 串(纯函数,便于测试)。"""
     got = {}
@@ -178,14 +212,108 @@ _QR_POLL = "https://passport.bilibili.com/x/passport-login/web/qrcode/poll?qrcod
 
 
 def _poll(qrcode_key: str):
-    """轮询一次扫码状态,返回 (data.code, cookie串)。cookie 优先取跨域 url,回退 Set-Cookie。"""
+    """轮询一次扫码状态,返回 (code, cookie串, refresh_token)。"""
     req = urllib.request.Request(_QR_POLL + qrcode_key, headers=_API_HEADERS)
     with urllib.request.urlopen(req, timeout=15) as r:
         set_cookies = r.headers.get_all("Set-Cookie") or []
         body = json.loads(r.read())
     d = body.get("data") or {}
     cookie = _cookies_from_url(d.get("url") or "") or _cookies_from_setcookie(set_cookies)
-    return d.get("code"), cookie
+    return d.get("code"), cookie, d.get("refresh_token")
+
+
+def _mgf1(seed: bytes, length: int) -> bytes:
+    out = bytearray()
+    for counter in range((length + 31) // 32):
+        out.extend(hashlib.sha256(seed + counter.to_bytes(4, "big")).digest())
+    return bytes(out[:length])
+
+
+def _correspond_path(timestamp: int) -> str:
+    """用标准库实现 B 站要求的 RSA-OAEP-SHA256 CorrespondPath。"""
+    message = f"refresh_{timestamp}".encode()
+    modulus = int.from_bytes(base64.urlsafe_b64decode(_RSA_N + "=" * (-len(_RSA_N) % 4)), "big")
+    key_size = (modulus.bit_length() + 7) // 8
+    digest = hashlib.sha256(b"").digest()
+    seed = secrets.token_bytes(32)
+    db = digest + b"\x00" * (key_size - len(message) - 2 * len(digest) - 2) + b"\x01" + message
+    masked_db = bytes(a ^ b for a, b in zip(db, _mgf1(seed, key_size - len(digest) - 1)))
+    masked_seed = bytes(a ^ b for a, b in zip(seed, _mgf1(masked_db, len(seed))))
+    encoded = b"\x00" + masked_seed + masked_db
+    encrypted = pow(int.from_bytes(encoded, "big"), _RSA_E, modulus).to_bytes(key_size, "big")
+    return encrypted.hex()
+
+
+def _cookie_value(cookie: str, name: str) -> str | None:
+    for part in cookie.split(";"):
+        key, sep, value = part.strip().partition("=")
+        if sep and key == name:
+            return value
+    return None
+
+
+def _post_json(url: str, form: dict[str, str], cookie: str) -> tuple[dict, list[str]]:
+    headers = dict(_API_HEADERS)
+    headers.update({"Cookie": cookie, "Content-Type": "application/x-www-form-urlencoded"})
+    data = urllib.parse.urlencode(form).encode()
+    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+    with urllib.request.urlopen(req, timeout=15) as r:
+        return json.loads(r.read()), r.headers.get_all("Set-Cookie") or []
+
+
+def _refresh_csrf(cookie: str, timestamp: int) -> str | None:
+    path = _correspond_path(timestamp)
+    req = urllib.request.Request(_CORRESPOND + path, headers={**_API_HEADERS, "Cookie": cookie})
+    with urllib.request.urlopen(req, timeout=15) as r:
+        body = r.read().decode("utf-8", "replace")
+    match = re.search(r'<div\s+id=["\']1-name["\']>([^<]+)</div>', body)
+    return html.unescape(match.group(1).strip()) if match else None
+
+
+def refresh() -> int:
+    """按 B 站 Web 流程刷新 cookie；没有 refresh_token 时要求重新扫码。"""
+    cookie = _load_cookie()
+    token = _load_refresh_token()
+    if not cookie or not token:
+        print("无法刷新：缺少登录凭据。请重新运行 `uv run cli --login bilibili`。")
+        return 1
+    try:
+        info = _get_json(_COOKIE_INFO, cookie)
+        data = info.get("data") or {}
+        if not data.get("refresh"):
+            print("当前无需刷新")
+            return 0 if _print_login_info(cookie) else 1
+        timestamp = int(data.get("timestamp") or time.time() * 1000)
+        refresh_csrf = _refresh_csrf(cookie, timestamp)
+        csrf = _cookie_value(cookie, "bili_jct")
+        if not refresh_csrf or not csrf:
+            print("刷新失败：未取得刷新令牌。请重新运行 `uv run cli --login bilibili`。")
+            return 1
+        result, set_cookies = _post_json(
+            _COOKIE_REFRESH,
+            {"csrf": csrf, "refresh_csrf": refresh_csrf, "source": "main_web", "refresh_token": token},
+            cookie,
+        )
+        if result.get("code") != 0:
+            print(f"刷新失败：{result.get('message') or result.get('code')}")
+            return 1
+        new_cookie = _cookies_from_setcookie(set_cookies)
+        new_token = (result.get("data") or {}).get("refresh_token")
+        if not new_cookie or not new_token:
+            print("刷新失败：接口未返回完整登录凭据，请重新扫码。")
+            return 1
+        new_csrf = _cookie_value(new_cookie, "bili_jct")
+        confirm, _ = _post_json(_CONFIRM_REFRESH, {"csrf": new_csrf or "", "refresh_token": token}, new_cookie)
+        if confirm.get("code") != 0:
+            print(f"刷新确认失败：{confirm.get('message') or confirm.get('code')}")
+            return 1
+        _save_cookie(new_cookie)
+        _save_refresh_token(new_token)
+        print("刷新成功")
+        return 0 if _print_login_info(new_cookie) else 1
+    except Exception as e:
+        print(f"刷新失败：{e!r}")
+        return 1
 
 
 def login() -> int:
@@ -204,7 +332,7 @@ def login() -> int:
     last = None
     while time.time() < deadline:
         try:
-            code, cookie = _poll(key)
+            code, cookie, refresh_token = _poll(key)
         except Exception as e:
             print(f"轮询出错:{e!r}")
             return 1
@@ -213,6 +341,8 @@ def login() -> int:
                 print("登录成功但未取到 cookie(接口返回结构可能有变)。")
                 return 1
             _save_cookie(cookie)
+            if refresh_token:
+                _save_refresh_token(refresh_token)
             print("登录成功")
             _print_login_info(cookie)
             return 0

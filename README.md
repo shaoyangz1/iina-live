@@ -102,7 +102,8 @@ url           直播间地址(如 https://live.bilibili.com/24678311),--mode ser
      手机 App 扫码确认,cookie 自动存到项目根目录 `.cookie/bilibili`(仅本人可读),之后取流自动带上；如果文件不存在,请重新扫码登录。
   2. 不读取环境变量或其他目录中的 cookie。
 
-  都没有则走免登录,最高约蓝光。查看登录态与有效期:`uv run cli --login-status`
+  查看登录态与有效期:`uv run cli --login-status`。新版扫码登录还会保存刷新凭据到 `.cookie/bilibili.refresh_token`，可用
+  `uv run cli --login-refresh bilibili` 按 B 站接口刷新；已有旧 cookie 没有该文件时，需重新扫码一次才能启用刷新。
   (显示用户名、会员类型、cookie 剩余天数——过期时间从 SESSDATA 本地解析,登录态联网确认)。
 
 > 代码内部仍将直播与点播分别放在 `live`、`series`，对外统一通过 `cli` 命令运行。

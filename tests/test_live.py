@@ -689,6 +689,28 @@ class TestBiliCookie(unittest.TestCase):
             self.assertEqual(saved, project)
             self.assertEqual(project.read_text(encoding="utf-8"), "SESSDATA=project")
 
+    def test_refresh_token_uses_sidecar_path(self):
+        with tempfile.TemporaryDirectory() as root:
+            project = pathlib.Path(root) / ".cookie" / "bilibili"
+            with mock.patch.object(bilibili, "_cookie_path", return_value=project):
+                saved = bilibili._save_refresh_token("refresh-token")
+                self.assertEqual(bilibili._load_refresh_token(), "refresh-token")
+            self.assertEqual(saved, project.with_name("bilibili.refresh_token"))
+
+    def test_correspond_path_is_rsa_oaep_hex(self):
+        path = bilibili._correspond_path(1786092407446)
+        self.assertEqual(len(path), 256)
+        int(path, 16)
+
+    def test_refresh_requires_sidecar_token(self):
+        with (
+            mock.patch.object(bilibili, "_load_cookie", return_value="SESSDATA=x"),
+            mock.patch.object(bilibili, "_load_refresh_token", return_value=None),
+            mock.patch("builtins.print") as printer,
+        ):
+            self.assertEqual(bilibili.refresh(), 1)
+        self.assertIn("重新运行 `uv run cli --login bilibili`", printer.call_args.args[0])
+
     def test_load_cookie_missing_returns_none(self):
         with tempfile.TemporaryDirectory() as root:
             project = pathlib.Path(root) / ".cookie" / "bilibili"

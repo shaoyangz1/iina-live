@@ -57,6 +57,13 @@ class RouteTests(unittest.TestCase):
 
         self.assertEqual(target, "live")
 
+    def test_login_refresh_value_does_not_become_url(self):
+        target, args, prog = cli.route(["--login-refresh", "bilibili"])
+
+        self.assertEqual(target, "live")
+        self.assertEqual(args, ["--login-refresh", "bilibili"])
+        self.assertEqual(prog, "cli")
+
     def test_main_dispatches_to_series_cli(self):
         url = "https://www.bilibili.com/bangumi/play/ep285395"
         with mock.patch.object(cli.series_cli, "main", return_value=7) as main:
