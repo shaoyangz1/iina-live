@@ -1,0 +1,3 @@
+[workspace]
+resolver = "3"
+members = ["crates/mpv-core", "crates/mpv-server", "crates/mpv-tauri"]

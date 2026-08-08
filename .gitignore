@@ -4,4 +4,6 @@ __pycache__/
 .venv/
 .cookie/
 *.egg-info/
+target/
+crates/mpv-tauri/gen/
 .series_watchlist

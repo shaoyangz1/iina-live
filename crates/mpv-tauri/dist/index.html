@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Play with MPV</title>
+  <style>
+    *, *::before { box-sizing: border-box; }
+    body { margin: 0; padding: 24px 16px; min-height: 100vh; background: #0d1117; color: #c9d1d9; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .app { width: 100%; max-width: 520px; margin: 0 auto; }
+    h1 { margin: 0 0 20px; color: #58a6ff; font-size: 1.3rem; text-align: center; }
+    h2 { margin: 24px 0 8px; color: #8b949e; font-size: .95rem; }
+    .input-group, .actions { display: flex; gap: 8px; }
+    input, select { flex: 1; min-width: 0; padding: 10px 14px; border: 1px solid #30363d; border-radius: 6px; background: #161b22; color: #c9d1d9; font-size: .9rem; outline: none; }
+    input:focus, select:focus { border-color: #58a6ff; }
+    button { padding: 10px 16px; border: 0; border-radius: 6px; background: #238636; color: #fff; font-size: .9rem; cursor: pointer; white-space: nowrap; }
+    button:hover { background: #2ea043; }
+    button:disabled { background: #21262d; color: #484f58; cursor: default; }
+    button.play { background: #1f6feb; }
+    button.play:hover { background: #388bfd; }
+    button.stop { background: #da3633; }
+    .status { display: none; margin-top: 12px; padding: 12px; border-radius: 6px; font-size: .85rem; text-align: center; }
+    .status.loading { display: block; background: #1b2228; color: #8b949e; }
+    .status.live { display: block; background: #0d3327; color: #3fb950; }
+    .status.offline, .status.error { display: block; background: #2d1622; color: #f85149; }
+    .meta { margin-top: 8px; color: #8b949e; font-size: .82rem; text-align: center; }
+    .panel { display: none; margin-top: 12px; }
+    .watch-item { display: flex; align-items: center; gap: 8px; padding: 9px 0; border-bottom: 1px solid #21262d; font-size: .85rem; }
+    .watch-item .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .watch-item .url { color: #8b949e; font-size: .75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .small { padding: 4px 8px; background: transparent; color: #58a6ff; font-size: .8rem; }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <h1>▶️ Play with MPV</h1>
+    <div class="input-group">
+      <input id="url-input" type="url" placeholder="输入直播/番剧地址…" autofocus>
+      <button id="parse-btn" class="play" type="button">解析</button>
+    </div>
+
+    <div id="status" class="status" role="status" aria-live="polite"></div>
+    <div id="meta" class="meta"></div>
+
+    <section id="live-panel" class="panel" aria-label="直播播放操作">
+      <div class="actions">
+        <button id="live-play" class="play" type="button">开始播放</button>
+        <button id="live-stop" class="stop" type="button">停止</button>
+      </div>
+    </section>
+
+    <section id="series-panel" class="panel" aria-label="番剧播放操作">
+      <div class="actions">
+        <select id="episode-select" aria-label="选择集数"></select>
+        <button id="series-play" class="play" type="button">播放选集</button>
+        <button id="watch-add" type="button">加入追剧</button>
+      </div>
+    </section>
+
+    <section id="watchlist" class="panel" aria-label="追剧清单">
+      <h2>追剧清单</h2>
+      <div id="watchlist-items"></div>
+    </section>
+
+    <section id="history" class="panel" aria-label="最近输入">
+      <h2>最近</h2>
+      <div id="history-list"></div>
+    </section>
+  </main>
+
+  <script>
+    const invoke = window.__TAURI__?.core?.invoke;
+    let currentUrl = '';
+    let currentKind = '';
+    let currentSeries = null;
+    let currentProxyPort = 0;
+    let history = readHistory();
+
+    function readHistory() {
+      try {
+        const value = JSON.parse(localStorage.getItem('mpv-tauri-history') || '[]');
+        return Array.isArray(value) ? value.filter(url => typeof url === 'string') : [];
+      } catch (_) { return []; }
+    }
+
+    function isSeriesUrl(url) {
+      return /bilibili\.com\/bangumi\/play\//i.test(url);
+    }
+
+    function showStatus(message, kind) {
+      const element = document.getElementById('status');
+      element.textContent = message;
+      element.className = `status ${kind || ''}`;
+    }
+
+    function addToHistory(url) {
+      history = [url, ...history.filter(item => item !== url)].slice(0, 20);
+      localStorage.setItem('mpv-tauri-history', JSON.stringify(history));
+      renderHistory();
+    }
+
+    function renderHistory() {
+      const section = document.getElementById('history');
+      const list = document.getElementById('history-list');
+      list.replaceChildren();
+      section.style.display = history.length ? 'block' : 'none';
+      history.slice(0, 10).forEach(url => {
+        const row = document.createElement('div');
+        row.className = 'watch-item';
+        const label = document.createElement('span');
+        label.className = 'name';
+        label.textContent = url;
+        const button = document.createElement('button');
+        button.className = 'small';
+        button.type = 'button';
+        button.textContent = '▶';
+        button.addEventListener('click', () => {
+          document.getElementById('url-input').value = url;
+          parseUrl();
+        });
+        row.append(label, button);
+        list.append(row);
+      });
+    }
+
+    async function parseUrl() {
+      const url = document.getElementById('url-input').value.trim();
+      if (!url || !invoke) return;
+      currentUrl = url;
+      currentKind = '';
+      currentSeries = null;
+      document.getElementById('live-panel').style.display = 'none';
+      document.getElementById('series-panel').style.display = 'none';
+      addToHistory(url);
+      showStatus('解析中…', 'loading');
+      try {
+        if (isSeriesUrl(url)) {
+          currentKind = 'series';
+          currentSeries = await invoke('get_series_info', { url });
+          renderSeries(currentSeries);
+          showStatus(`🎞️ ${currentSeries.nick || '番剧'}，共 ${currentSeries.episodes.length} 集`, 'live');
+          document.getElementById('meta').textContent = 'Bilibili 点播';
+          document.getElementById('series-panel').style.display = 'block';
+          return;
+        }
+        currentKind = 'live';
+        const meta = await invoke('parse_room', { url });
+        showStatus(meta.living ? `🔴 ${meta.title || meta.nick || meta.rid} 正在直播` : '⚪ 未开播', meta.living ? 'live' : 'offline');
+        document.getElementById('meta').textContent = `${meta.nick || ''}${meta.nick && meta.platform ? ' · ' : ''}${meta.platform}`;
+        document.getElementById('live-panel').style.display = 'block';
+      } catch (error) {
+        showStatus(`解析失败: ${String(error)}`, 'error');
+      }
+    }
+
+    function renderSeries(info) {
+      const select = document.getElementById('episode-select');
+      select.replaceChildren();
+      info.episodes.forEach((episode, index) => {
+        const option = document.createElement('option');
+        const number = episode.title && /^\d+$/.test(episode.title.trim()) ? episode.title.trim() : String(index + 1);
+        option.value = number;
+        option.textContent = `第 ${number} 集${episode.long_title ? ` · ${episode.long_title}` : ''}`;
+        select.append(option);
+      });
+      if (info.episodes.length) select.selectedIndex = info.episodes.length - 1;
+    }
+
+    async function startLive() {
+      if (!currentUrl) return;
+      try {
+        showStatus('启动代理…', 'loading');
+        currentProxyPort = await invoke('start_proxy', { url: currentUrl, quality: null });
+        await invoke('open_player', { url: `http://127.0.0.1:${currentProxyPort}/live.flv`, title: currentUrl, audio: null, headers: null, reconnect: true });
+        showStatus(`正在播放（端口 ${currentProxyPort}）`, 'live');
+      } catch (error) { showStatus(`启动失败: ${String(error)}`, 'error'); }
+    }
+
+    async function startSeries() {
+      if (!currentUrl) return;
+      try {
+        showStatus('获取播放地址…', 'loading');
+        const episode = document.getElementById('episode-select').value;
+        const info = await invoke('parse_series_episode', { url: currentUrl, episode });
+        const stream = info.streams.reduce((best, item) => !best || item.quality > best.quality ? item : best, null);
+        if (!stream || !stream.url) throw new Error('未取到可播放的流');
+        await invoke('open_player', { url: stream.url, title: info.title || info.nick || currentUrl, audio: stream.audio || null, headers: info.headers || null, reconnect: false });
+        showStatus(`正在播放：${info.title || info.nick || episode}`, 'live');
+      } catch (error) { showStatus(`播放失败: ${String(error)}`, 'error'); }
+    }
+
+    async function stopLive() {
+      try {
+        await invoke('stop_proxy');
+        showStatus('已停止', 'offline');
+      } catch (error) { showStatus(`停止失败: ${String(error)}`, 'error'); }
+    }
+
+    async function addWatchlist() {
+      if (!currentSeries || !currentUrl) return;
+      try {
+        await invoke('watchlist_add', { url: currentUrl, nick: currentSeries.nick || currentUrl, total: currentSeries.episodes.length });
+        await renderWatchlist();
+        showStatus('已加入追剧清单', 'live');
+      } catch (error) { showStatus(`保存失败: ${String(error)}`, 'error'); }
+    }
+
+    async function renderWatchlist() {
+      if (!invoke) return;
+      const items = await invoke('watchlist_list');
+      const section = document.getElementById('watchlist');
+      const list = document.getElementById('watchlist-items');
+      list.replaceChildren();
+      section.style.display = items.length ? 'block' : 'none';
+      items.forEach(item => {
+        const row = document.createElement('div');
+        row.className = 'watch-item';
+        const text = document.createElement('span');
+        text.className = 'name';
+        text.textContent = `${item.nick}（共 ${item.total} 集）`;
+        const button = document.createElement('button');
+        button.className = 'small';
+        button.type = 'button';
+        button.textContent = '打开';
+        button.addEventListener('click', () => {
+          document.getElementById('url-input').value = item.url;
+          parseUrl();
+        });
+        row.append(text, button);
+        list.append(row);
+      });
+    }
+
+    document.getElementById('parse-btn').addEventListener('click', parseUrl);
+    document.getElementById('live-play').addEventListener('click', startLive);
+    document.getElementById('live-stop').addEventListener('click', stopLive);
+    document.getElementById('series-play').addEventListener('click', startSeries);
+    document.getElementById('watch-add').addEventListener('click', addWatchlist);
+    document.getElementById('url-input').addEventListener('keydown', event => { if (event.key === 'Enter') parseUrl(); });
+    renderHistory();
+    renderWatchlist().catch(error => showStatus(`追剧清单读取失败: ${String(error)}`, 'error'));
+  </script>
+</body>
+</html>

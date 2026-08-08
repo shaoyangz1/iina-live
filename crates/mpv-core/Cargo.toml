@@ -1,0 +1,22 @@
+[package]
+name = "mpv-core"
+version = "0.1.0"
+edition = "2021"
+description = "直播/点播流解析核心库：平台派发、清晰度选择、m3u 生成"
+
+[dependencies]
+anyhow = "1"
+async-trait = "0.1"
+base64 = "0.22"
+md-5 = "0.10"
+regex = "1"
+reqwest = { version = "0.12", features = ["cookies", "gzip", "json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+url = "2"
+qrcode = "0.14"
+chrono = { version = "0.4", features = ["serde"] }
+rsa = "0.9"
+sha2 = "0.10"
+rand = "0.8"

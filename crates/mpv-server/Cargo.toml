@@ -1,0 +1,24 @@
+[package]
+name = "mpv-server"
+version = "0.1.0"
+edition = "2021"
+description = "本地 FLV 转流代理：断流重签 + 时间戳拼接，给播放器一个永不中断的 localhost 地址"
+
+[[bin]]
+name = "mpv-server"
+path = "src/main.rs"
+
+[dependencies]
+mpv-core = { path = "../mpv-core" }
+anyhow = "1"
+axum = "0.8"
+bytes = "1"
+futures = "0.3"
+reqwest = { version = "0.12", features = ["stream"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+async-stream = "0.3"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+url = "2"
